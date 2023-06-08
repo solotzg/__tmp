@@ -1,0 +1,75 @@
+version: "3.3"
+
+services:
+  pd0:
+    image: hub.pingcap.net/qa/pd:${TIDB_BRANCH}
+    volumes:
+      - ${pingcap_demo_path}/.tmp.demo/tidb/data/pd0:/data
+      - ${pingcap_demo_path}/.tmp.demo/tidb/log/pd0:/log
+    command:
+      - --name=pd0
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd0:2379
+      - --advertise-peer-urls=http://pd0:2380
+      - --initial-cluster=pd0=http://pd0:2380
+      - --data-dir=/data
+      - --log-file=/log/pd.log
+    restart: on-failure
+    ports:
+      - "${pd_port}:2379"
+
+  tikv0:
+    image: hub.pingcap.net/qa/tikv:${TIDB_BRANCH}
+    volumes:
+      - ${pingcap_demo_path}/tidb-config/tikv.toml:/tikv.toml:ro
+      - ${pingcap_demo_path}/.tmp.demo/tidb/data/tikv0:/data
+      - ${pingcap_demo_path}/.tmp.demo/tidb/log/tikv0:/log
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv0:20160
+      - --status-addr=0.0.0.0:10080
+      - --advertise-status-addr=tikv0:10080
+      - --pd=pd0:2379
+      - --config=/tikv.toml
+      - --data-dir=/data
+      - --log-file=/log/tikv.log
+    depends_on:
+      - "pd0"
+    restart: on-failure
+    ports:
+      - "${tikv_status_port}:10080"
+
+  tidb0:
+    image: hub.pingcap.net/qa/tidb:${TIDB_BRANCH}
+    volumes:
+      - ${pingcap_demo_path}/.tmp.demo/tidb/log/tidb0:/log
+    command:
+      - --store=tikv
+      - --path=pd0:2379
+      - --log-file=/log/tidb.log
+      - --advertise-address=tidb0
+    depends_on:
+      - "tikv0"
+    restart: on-failure
+    ports:
+      - "${tidb_port}:4000"
+
+  ticdc_server0:
+    image: hub.pingcap.net/qa/ticdc:${TIDB_BRANCH}
+    volumes:
+      - ${pingcap_demo_path}/.tmp.demo/tidb/data/ticdc_server0:/data
+      - ${pingcap_demo_path}/.tmp.demo/tidb/log/ticdc_server0:/log
+    command:
+      - /cdc
+      - server
+      - --addr=0.0.0.0:8333 
+      - --advertise-addr=ticdc_server0:8333
+      - --data-dir=/data
+      - --log-file=/log/ticdc.log
+      - --pd=http://pd0:2379
+    depends_on:
+      - "tidb0"
+    restart: on-failure
+    ports:
+      - "${ticdc_port}:8333"

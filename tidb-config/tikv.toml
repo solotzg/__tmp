@@ -1,0 +1,7 @@
+
+[storage]
+# No space is reserved at all
+reserve-space = "0"
+
+[raftstore]
+capacity = "100GB"
