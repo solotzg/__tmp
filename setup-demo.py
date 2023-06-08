@@ -7,7 +7,6 @@ import json as json
 from inner_utils import *
 import socket
 from string import Template
-import shutil
 
 
 SCRIPT_DIR = os.path.realpath(os.path.join(__file__, os.pardir))
@@ -98,6 +97,12 @@ select * from t3;
 # https://repo.maven.apache.org/maven2/org/apache/hudi/hudi-flink-bundle_2.11/0.10.1/hudi-flink-bundle_2.11-0.10.1.jar
 
 
+def get_host_name():
+    hostname = socket.gethostname()
+    ip = socket.gethostbyname(hostname)
+    return ip
+
+
 class Runner:
     def __init__(self):
         pass
@@ -176,8 +181,6 @@ class Runner:
         parser.add_argument(
             '--sink_task_flink_schema_path', help='path to sql file include table schema for flink')
         parser.add_argument(
-            '--sink_task_hudi_schema_path', help='path to sql file include table schema for hudi')
-        parser.add_argument(
             '--type', help='command type', choices=('deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task'))
         self.args = parser.parse_args()
         self.funcs_map = {
@@ -187,22 +190,25 @@ class Runner:
             'sink_task': self.sink_task,
         }
 
+        # mock
         self.args.start_port = 12345
         self.args.hudi_repo = "/data2/tongzhigao/hudi"
         self.args.env_libs = "/data2/tongzhigao/tmp/test"
         self.args.type = 'sink_task'
-        self.args.sink_task_desc = 'etl_uid_1.1234.a.b'
+        self.args.sink_task_desc = 'etl1.1.demo.t1'
         self.args.tidb_branch = 'release-6.5'
+        self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
+            SCRIPT_DIR)
 
     def setup_env_libs(self):
         assert self.args.env_libs
 
         if not os.path.exists(self.args.env_libs):
             os.makedirs(self.args.env_libs)
-
-        hadoop_path = os.path.join(self.args.env_libs, "hadoop-2.8.4")
-        hadoop_name = 'hadoop-2.8.4.tar.gz'
-        hadoop_url = "{}/{}".format(DOWNLOAD_URL, hadoop_name)
+        hadoop_name = "hadoop-2.8.4"
+        hadoop_path = os.path.join(self.args.env_libs, hadoop_name)
+        hadoop_tar_name = '{}.tar.gz'.format(hadoop_name)
+        hadoop_url = "{}/{}".format(DOWNLOAD_URL, hadoop_tar_name)
 
         flink_sql_connector_name = 'flink-sql-connector-kafka_2.12-1.13.6.jar'
         flink_sql_connector_url = "{}/{}".format(
@@ -215,8 +221,8 @@ class Runner:
             DOWNLOAD_URL, cdc_name)
 
         if not os.path.exists(hadoop_path):
-            _, _, status = run_cmd("cd {} && wget {} && tar zxf {}".format(
-                self.args.env_libs, hadoop_url, hadoop_name))
+            _, _, status = run_cmd("cd {} && curl -o {} {} && tar zxf {} && cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml".format(
+                self.args.env_libs, hadoop_tar_name, hadoop_url, hadoop_tar_name, SCRIPT_DIR, hadoop_name))
             assert status == 0
         if not os.path.exists(os.path.join(self.args.env_libs, flink_sql_connector_name)):
             _, _, status = run_cmd("cd {} && wget {}".format(
@@ -227,8 +233,8 @@ class Runner:
                 self.args.env_libs, hudi_flink_bundle_url))
             assert status == 0
         if not os.path.exists(os.path.join(self.args.env_libs, cdc_name)):
-            _, _, status = run_cmd("cd {} && wget {}".format(
-                self.args.env_libs, cdc_url))
+            _, _, status = run_cmd("cd {} && wget {} && chmod +x {}".format(
+                self.args.env_libs, cdc_url, cdc_name))
             assert status == 0
 
     def deploy_tidb(self):
@@ -260,7 +266,7 @@ class Runner:
 
         template_context = load_file(template_file)
         template = Template(template_context)
-        var_set = TIDB_VARS_SET
+        var_set = sorted(TIDB_VARS_SET)
         var_map = {}
         for i, v in enumerate(var_set):
             port = start_port+i
@@ -298,7 +304,7 @@ class Runner:
             return
         template_context = load_file(template_file)
         template = Template(template_context)
-        var_set = HUDI_FLINK_VARS_SET
+        var_set = sorted(HUDI_FLINK_VARS_SET)
         var_map = {}
         for i, v in enumerate(var_set):
             port = start_port+i
@@ -345,7 +351,6 @@ class Runner:
         assert self.args.sink_task_desc
         assert self.args.hudi_repo
         assert self.args.sink_task_flink_schema_path
-        assert self.args.sink_task_hudi_schema_path
 
         _p = self.args.sink_task_desc.split('.')
         if len(_p) != 4:
@@ -354,38 +359,43 @@ class Runner:
         etl_uid, table_id, db, table_name = self.args.sink_task_desc.split('.')
 
         assert os.path.exists(self.args.sink_task_flink_schema_path)
-        assert os.path.exists(self.args.sink_task_hudi_schema_path)
 
         table_id = int(table_id)
         self.setup_env_libs()
         env_vars = self.load_env_vars()
-        cdc_server = "http://127.0.0.1:{}".format(env_vars[ticdc_port_name])
-        kafka_addr = "127.0.0.1:{}".format(env_vars[kafka_port_name])
+        ip = get_host_name()
+        cdc_server = "http://{}:{}".format(ip, env_vars[ticdc_port_name])
+        kafka_addr = "{}:{}".format(ip, env_vars[kafka_port_name])
         protocol = "canal-json"
-        kafka_version = "2.0.0"
+        kafka_version = "2.4.0"
         partition_num = 1
         max_message_bytes = 67108864
         replication_factor = 1
         topic = '{}-sink-{}'.format(etl_uid, table_id)
         changefeed_id = topic
-        config_file_path = gen_ticdc_config_file(
+        cdc_config = gen_ticdc_config_file(
             etl_uid, table_id, db, table_name)
         cdc_bin_path = os.path.join(self.args.env_libs, cdc_name)
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
         cmd = '{} cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
-            cdc_bin_path, cdc_server, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, config_file_path)
+            cdc_bin_path, cdc_server, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config)
         logger.debug("RUN CMD:\n\t{}\n".format(cmd))
         # TODO
 
-        sql = """
-set execution.checkpointing.interval = 2sec;
-create database {};
-create table {}.{}(a int PRIMARY KEY) with('connector'='kafka', 'topic'='{}', 'properties.bootstrap.servers'='kafkabroker:9092', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='latest-offset');
-        """
-
-        shutil.copyfile()
-        cmd = '/pingcap/demo'
+        template = Template(load_file(self.args.sink_task_flink_schema_path))
+        var_map = {"kafka_address": "kafkabroker:9092",
+                   "kafka_topic": topic, "hdfs_address": "namenode:8020"}
+        logger.debug("set basic config: {}".format(var_map))
+        sql_file_rel_path = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
+            etl_uid, table_id, db, table_name)
+        flink_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
+        with open(flink_path, 'w') as f:
+            f.write(template.substitute(var_map))
+        logger.info("save flink sink sql to {}".format(flink_path))
+        cmd = "/pingcap/demo/flink-sql-client.sh embedded -f /pingcap/demo/{}".format(
+            sql_file_rel_path)
+        logger.debug("RUN CMD:\n\t{}\n".format(cmd))
 
     def run(self):
         self._init()
@@ -479,7 +489,9 @@ def main():
     # gen_flink_config_file_from_template(123455, '/data2/tongzhigao/hudi')
     # gen_ticdc_config_file('sink', "tzg", "t1")
     # gen_tidb_cluster_config_file_from_template(12345, "release-6.5")
-    Runner().run()
+    # Runner().run()
+    var_set = sorted(TIDB_VARS_SET)
+    print(var_set)
 
 
 if __name__ == '__main__':

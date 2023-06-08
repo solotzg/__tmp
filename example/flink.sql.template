@@ -1,0 +1,16 @@
+create database demo_flink;
+set execution.checkpointing.interval = 2sec;
+create table demo_flink.t1(a int PRIMARY KEY) with('connector'='kafka', 'topic'='${kafka_topic}', 'properties.bootstrap.servers'='${kafka_address}', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='latest-offset');
+
+create database demo_hudi;
+CREATE TABLE demo_hudi.t1(
+  a INT PRIMARY KEY NOT ENFORCED,
+  `partition` VARCHAR(20)
+) PARTITIONED BY (`partition`) WITH (
+  'connector' = 'hudi',
+  'path' = 'hdfs://${hdfs_address}/pingcap/demo/hudi_t1',
+  'table.type' = 'MERGE_ON_READ',
+  'read.streaming.enabled' = 'true',
+  'read.streaming.check-interval' = '1'
+);
+INSERT INTO demo_hudi.t1(a, `partition`) (select a,'p1' from demo_flink.t1);

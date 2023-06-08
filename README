@@ -1,0 +1,8 @@
+# Modification
+
+add content to ${HADOOP_HOME}/etc/hadoop/hdfs-site.xml
+
+```
+<property><name>dfs.client.block.write.replace-datanode-on-failure.enable</name><value>true</value></property>
+<property><name>dfs.client.block.write.replace-datanode-on-failure.policy</name><value>NEVER</value></property>
+```

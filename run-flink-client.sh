@@ -13,10 +13,6 @@ if [[ -z "${HUDI_WS}" ]]; then
   exit -1
 fi
 
-if [[ -z "${SQL_PATH}" ]]; then
-  echo "ERROR: env var SQL_PATH is empty"
-  exit -1
-fi
 
 # restart cluster
-HUDI_WS=${HUDI_WS} docker compose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} exec -it sql-client /bin/bash /pingcap/demo/${SQL_PATH}
+HUDI_WS=${HUDI_WS} docker compose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} run -it --rm sql-client /bin/bash
