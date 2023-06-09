@@ -252,8 +252,14 @@ class Runner:
             assert status == 0
 
     def deploy_tidb(self):
-        tidb_version_prefix = 'release-'
+        env_vars = self.load_env_vars()
+        self.args.start_port = self.args.start_port if self.args.start_port is not None else env_vars.get(
+            start_port_name)
         assert self.args.start_port
+
+        tidb_version_prefix = 'release-'
+        self.args.tidb_branch = self.args.tidb_branch if self.args.tidb_branch else env_vars.get(
+            TIDB_BRANCH)
         assert self.args.tidb_branch
         assert self.args.tidb_branch == 'master' or self.args.tidb_branch.startswith(
             tidb_version_prefix)
@@ -266,7 +272,6 @@ class Runner:
         self.gen_tidb_cluster_config_file_from_template(
             self.args.start_port + TIDB_START_PORT_OFFSET, self.args.tidb_branch)
 
-        env_vars = self.load_env_vars()
         if env_vars.get(tidb_running, False):
             logger.info(
                 "tidb ({}) is running, please stop tidb docker compose if necessary".format(env_vars[TIDB_BRANCH]))
@@ -284,7 +289,8 @@ class Runner:
                 "failed to deploy tidb cluster, error:\n{}".format(stderr))
             exit(-1)
 
-        self.update_env_vars({tidb_running: True})
+        self.update_env_vars(
+            {tidb_running: True, start_port_name: self.args.start_port})
 
     def gen_tidb_cluster_config_file_from_template(self, start_port, branch):
         template_file = '{}/{}'.format(SCRIPT_DIR,
@@ -393,7 +399,8 @@ class Runner:
                 "failed to deploy hudi flink cluster, error:\n{}".format(stderr))
             exit(-1)
 
-        self.update_env_vars({hudi_flink_running: True})
+        self.update_env_vars(
+            {hudi_flink_running: True, start_port_name: self.args.start_port})
 
     def deploy_hudi_flink_tidb(self):
         self.deploy_hudi_flink()
