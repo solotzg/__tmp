@@ -29,78 +29,9 @@ HUDI_WS = 'HUDI_WS'
 tidb_running = 'tidb_running'
 hudi_flink_running = 'hudi_flink_running'
 TIDB_BRANCH = 'TIDB_BRANCH'
-
-"""
-create database tzg;
-create table tzg.t1(a int PRIMARY KEY);
-insert into tzg.t1 values(1), (2), (3);
-select * from tzg.t1;
-insert into tzg.t1 (select max(a)+1 from tzg.t1);
-select * from tzg.t1;
-
-create database tzg;
-
-drop table tzg.t1;
-
-create table tzg.t1(a int PRIMARY KEY) with('connector'='kafka', 'topic'='topic-tzg-test-2', 'properties.bootstrap.servers'='kafkabroker:9092', 'properties.group.id'='cdc-test-consumer-group', 'format'='canal-json', 'scan.startup.mode'='latest-offset');
-
-select * from tzg.t1;
-
-
-set sql-client.execution.result-mode = tableau;
-CREATE TABLE t1(
-  uuid VARCHAR(20) PRIMARY KEY NOT ENFORCED,
-  name VARCHAR(10),
-  age INT,
-  ts TIMESTAMP(3),
-  `partition` VARCHAR(20)
-)
-PARTITIONED BY (`partition`)
-WITH (
-  'connector' = 'hudi',
-  'path' = 'hdfs://namenode:8020/tmp/tzg/t1_a',
-  'table.type' = 'MERGE_ON_READ'
-);
-INSERT INTO t1 VALUES
-  ('id1','Danny',23,TIMESTAMP '1970-01-01 00:00:01','par1'),
-  ('id2','Stephen',33,TIMESTAMP '1970-01-01 00:00:02','par1'),
-  ('id3','Julian',53,TIMESTAMP '1970-01-01 00:00:03','par2');
-
-select * from t1;
-
-INSERT INTO t1 VALUES
-  ('id_1','Danny',23,TIMESTAMP '1970-01-01 00:00:01','par1'),
-  ('id_2','Stephen',33,TIMESTAMP '1970-01-01 00:00:02','par1'),
-  ('id_3','Julian',53,TIMESTAMP '1970-01-01 00:00:03','par2');
-
-select * from t1;
-
-
-"""
-
-
-"""
-create database tzg;
-drop table tzg.t1;
-create table tzg.t1(a int PRIMARY KEY) with('connector'='kafka', 'topic'='topic-tzg-test-2', 'properties.bootstrap.servers'='kafkabroker:9092', 'properties.group.id'='cdc-test-consumer-group', 'format'='canal-json', 'scan.startup.mode'='latest-offset');
-set sql-client.execution.result-mode = tableau;
-set execution.checkpointing.interval = 5sec;
-CREATE TABLE t3(
-  a INT PRIMARY KEY NOT ENFORCED,
-  `partition` VARCHAR(20)
-) PARTITIONED BY (`partition`) WITH (
-  'connector' = 'hudi',
-  'path' = 'hdfs://namenode:8020/tmp/tzg/t6',
-  'table.type' = 'MERGE_ON_READ',
-  'read.streaming.enabled' = 'true',
-  'read.streaming.check-interval' = '1'
-);
-INSERT INTO t3 values(1);
-INSERT INTO t3(a, `partition`) (select a,'p1' from tzg.t1);
-select * from t3;
-"""
-
-# https://repo.maven.apache.org/maven2/org/apache/hudi/hudi-flink-bundle_2.11/0.10.1/hudi-flink-bundle_2.11-0.10.1.jar
+demo_host = 'demo_host'
+env_libs_name = 'env_libs'
+start_port_name = 'start_port'
 
 
 def get_host_name():
@@ -184,6 +115,7 @@ class Runner:
                 exit(-1)
             dt_ms = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
             env_data[hudi_compiled] = dt_ms
+            env_data[HUDI_WS] = hudi_path
             logger.info('set hudi compiled time: {}'.format(
                 hudi_compiled_time))
             return env_data, True
@@ -276,10 +208,17 @@ class Runner:
             logger.info("tidb is NOT running")
 
     def setup_env_libs(self):
+        env_vars = self.load_env_vars()
+        self.args.env_libs = self.args.env_libs if self.args.env_libs is not None else env_vars.get(
+            env_libs_name)
         assert self.args.env_libs
 
         if not os.path.exists(self.args.env_libs):
             os.makedirs(self.args.env_libs)
+
+        if self.args.env_libs != env_vars.get(env_libs_name):
+            self.update_env_vars({env_libs_name: self.args.env_libs})
+
         hadoop_name = "hadoop-2.8.4"
         hadoop_path = os.path.join(self.args.env_libs, hadoop_name)
         hadoop_tar_name = '{}.tar.gz'.format(hadoop_name)
@@ -345,10 +284,7 @@ class Runner:
                 "failed to deploy tidb cluster, error:\n{}".format(stderr))
             exit(-1)
 
-        def func(env_data):
-            env_data[tidb_running] = True
-            return env_data, True
-        try_handle_env_data(func)
+        self.update_env_vars({tidb_running: True})
 
     def gen_tidb_cluster_config_file_from_template(self, start_port, branch):
         template_file = '{}/{}'.format(SCRIPT_DIR,
@@ -388,12 +324,12 @@ class Runner:
 
         try_handle_env_data(func)
 
-    def gen_flink_config_file_from_template(self, start_port, hudi_root, env_libs_path):
+    def gen_flink_config_file_from_template(self, start_port, hudi_path):
         template_file = '{}/{}'.format(SCRIPT_DIR,
                                        'docker-compose_hadoop_hive_spark_flink.yml.template')
         logger.info(
             "start to gen flink-hudi cluster docker compose file: start_port={}, hudi_root={}, template_file=`{}`".format(
-                start_port, hudi_root, template_file))
+                start_port, hudi_path, template_file))
         config_file_path = '{}/{}'.format(SCRIPT_DIR,
                                           '.tmp.docker-compose_hadoop_hive_spark_flink.yml')
         if os.path.exists(config_file_path):
@@ -411,9 +347,10 @@ class Runner:
                     "port {} is occupied, please set new `start_port`".format(port))
                 exit(-1)
             var_map[v] = port
-        var_map[HUDI_WS] = hudi_root
+        var_map[HUDI_WS] = hudi_path
         var_map['pingcap_demo_path'] = SCRIPT_DIR
-        var_map['env_libs'] = env_libs_path
+        host = get_host_name()
+        var_map[demo_host] = host
         logger.debug("set basic config: {}".format(var_map))
         with open(config_file_path, 'w') as f:
             f.write(template.substitute(var_map))
@@ -428,12 +365,19 @@ class Runner:
         try_handle_env_data(func)
 
     def deploy_hudi_flink(self):
+        env_vars = self.load_env_vars()
+        self.args.start_port = self.args.start_port if self.args.start_port is not None else env_vars.get(
+            start_port_name)
         assert self.args.start_port
+
+        self.args.hudi_repo = self.args.hudi_repo if self.args.hudi_repo is not None else env_vars.get(
+            HUDI_WS)
         assert self.args.hudi_repo
+        assert os.path.exists(self.args.hudi_repo)
+
         self.setup_env_libs()
         self.gen_flink_config_file_from_template(
-            self.args.start_port + HUDI_START_PORT_OFFSET, self.args.hudi_repo, self.args.env_libs)
-        env_vars = self.load_env_vars()
+            self.args.start_port + HUDI_START_PORT_OFFSET, self.args.hudi_repo)
         if env_vars.get(hudi_flink_running, False):
             logger.info(
                 "hudi flink is running, please stop hudi flink docker compose if necessary")
@@ -449,10 +393,7 @@ class Runner:
                 "failed to deploy hudi flink cluster, error:\n{}".format(stderr))
             exit(-1)
 
-        def func(env_data):
-            env_data[hudi_flink_running] = True
-            return env_data, True
-        try_handle_env_data(func)
+        self.update_env_vars({hudi_flink_running: True})
 
     def deploy_hudi_flink_tidb(self):
         self.deploy_hudi_flink()
@@ -486,7 +427,7 @@ class Runner:
         table_id = int(table_id)
         self.setup_env_libs()
         env_vars = self.load_env_vars()
-        ip = get_host_name()
+        host = get_host_name()
 
         out, err, ret = run_cmd(
             "mysql -h 0.0.0.0 -P {} -u root -e 'desc {}.{}' ".format(env_vars[tidb_port_name], db, table_name))
@@ -497,8 +438,8 @@ class Runner:
             logger.info('schema of `{}`.`{}` is:\n{}'.format(
                 db, table_name, out))
 
-        cdc_server = "http://{}:{}".format(ip, env_vars[ticdc_port_name])
-        kafka_addr = "{}:{}".format(ip, env_vars[kafka_port_name])
+        cdc_server = "http://{}:{}".format(host, env_vars[ticdc_port_name])
+        kafka_addr = "{}:{}".format(host, env_vars[kafka_port_name])
         protocol = "canal-json"
         kafka_version = "2.4.0"
         partition_num = 1
@@ -539,7 +480,7 @@ class Runner:
         logger.info(
             "success to run flink sql by flink client, sql file path: `{}`".format(flink_sql_path))
         logger.info(
-            "please open flink jobmanager web site http://{}:{} for details".format(ip, env_vars[flink_jobmanager_port_name]))
+            "please open flink jobmanager web site http://{}:{} for details".format(host, env_vars[flink_jobmanager_port_name]))
 
     def run(self):
         self._init()
