@@ -7,7 +7,7 @@ SCRIPT_PATH=$(
 )
 
 ${SCRIPT_PATH}/stop_clean_tidb.sh
-docker compose -f ${SCRIPT_PATH}/.tmp.tidb-cluster.yml up -d 2>&1
+docker compose -f ${SCRIPT_PATH}/tidb/.tmp.tidb-cluster.yml up -d 2>&1
 
 function wait_env() {
   local timeout='200'
