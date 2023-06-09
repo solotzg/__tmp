@@ -196,6 +196,8 @@ class Runner:
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info'))
         self.args = parser.parse_args()
+        if self.args.start_port is not None:
+            self.args.start_port = int(self.args.start_port)
         self.funcs_map = {
             'deploy_hudi_flink': self.deploy_hudi_flink,
             'deploy_tidb': self.deploy_tidb,
@@ -523,7 +525,7 @@ class Runner:
         logger.info(
             "success to run flink sql by flink client, sql file path: `{}`".format(flink_sql_path))
         logger.info(
-            "please open flink jobmanager web site {}:{} for details".format(ip, env_vars[flink_jobmanager_port_name]))
+            "please open flink jobmanager web site http://{}:{} for details".format(ip, env_vars[flink_jobmanager_port_name]))
 
     def run(self):
         self._init()
