@@ -190,7 +190,7 @@ class Runner:
         parser.add_argument(
             '--sink_task_desc', help='format: `etl_uid.table_id.db_name.table_name`. sink tidb table to ticdc -> kafka -> flink -> hudi')
         parser.add_argument(
-            '--sink_task_flink_schema_path', help='path to sql file include table schema for flink')
+            '--sink_task_flink_schema_path', help='path to sql file include table schema for flink and hudi')
         parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
