@@ -358,8 +358,9 @@ class Runner:
         host = get_host_name()
         var_map[demo_host] = host
         logger.debug("set basic config: {}".format(var_map))
+        d = template.substitute(var_map)
         with open(config_file_path, 'w') as f:
-            f.write(template.substitute(var_map))
+            f.write(d)
         logger.info(
             "gen docker compose config file `{}`".format(config_file_path))
 
