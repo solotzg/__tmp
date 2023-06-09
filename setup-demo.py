@@ -13,12 +13,14 @@ SCRIPT_DIR = os.path.realpath(os.path.join(__file__, os.pardir))
 DOWNLOAD_URL = 'http://10.2.12.124:19876'
 HUDI_START_PORT_OFFSET = 0
 kafka_port_name = 'kafka_port'
+flink_jobmanager_port_name = 'flink_jobmanager_port'
 HUDI_FLINK_VARS_SET = {"hadoop_web_port", "hdfs_port", "historyserver_port", "hiveserver_port",
-                       "spark_web_port", "spark_master_port", kafka_port_name, "flink_jobmanager_port"}
+                       "spark_web_port", "spark_master_port", kafka_port_name, flink_jobmanager_port_name}
 TIDB_START_PORT_OFFSET = len(HUDI_FLINK_VARS_SET) + HUDI_START_PORT_OFFSET
 ticdc_port_name = 'ticdc_port'
+tidb_port_name = 'tidb_port'
 TIDB_VARS_SET = {"pd_port", "tikv_status_port",
-                 "tidb_port", ticdc_port_name}
+                 tidb_port_name, ticdc_port_name}
 tidb_compose_name = 'tidb-compose'
 hufi_flink_compose = 'hufi-flink-compose'
 cdc_name = "cdc"
@@ -203,7 +205,7 @@ class Runner:
         self.args.start_port = 12345
         self.args.hudi_repo = "/data2/tongzhigao/hudi"
         self.args.env_libs = "/data2/tongzhigao/tmp/test"
-        self.args.type = 'down_hudi_flink'
+        self.args.type = 'sink_task'
         self.args.sink_task_desc = 'etl1.1.demo.t1'
         self.args.tidb_branch = 'release-6.5'
         self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
@@ -459,6 +461,16 @@ class Runner:
         self.setup_env_libs()
         env_vars = self.load_env_vars()
         ip = get_host_name()
+
+        out, err, ret = run_cmd(
+            "mysql -h 0.0.0.0 -P {} -u root -e 'desc {}.{}' ".format(env_vars[tidb_port_name], db, table_name))
+        if ret:
+            logger.error("tidb error:\n{}".format(err))
+            exit(-1)
+        else:
+            logger.info('schema of `{}`.`{}` is:\n{}'.format(
+                db, table_name, out))
+
         cdc_server = "http://{}:{}".format(ip, env_vars[ticdc_port_name])
         kafka_addr = "{}:{}".format(ip, env_vars[kafka_port_name])
         protocol = "canal-json"
@@ -475,8 +487,11 @@ class Runner:
             topic, changefeed_id, self.args.sink_task_desc))
         cmd = '{} cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
             cdc_bin_path, cdc_server, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config)
-        logger.debug("RUN CMD:\n\t{}\n".format(cmd))
-        # TODO
+        _, err, ret = run_cmd(cmd, True)
+        if ret:
+            logger.error(
+                "failed to create table sink task by ticdc client, error:\n{}".format(err))
+            exit(-1)
 
         template = Template(load_file(self.args.sink_task_flink_schema_path))
         var_map = {"kafka_address": "kafkabroker:9092",
@@ -484,13 +499,21 @@ class Runner:
         logger.debug("set basic config: {}".format(var_map))
         sql_file_rel_path = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
             etl_uid, table_id, db, table_name)
-        flink_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
-        with open(flink_path, 'w') as f:
+        flink_sql_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
+        with open(flink_sql_path, 'w') as f:
             f.write(template.substitute(var_map))
-        logger.info("save flink sink sql to `{}`".format(flink_path))
-        cmd = "/pingcap/demo/flink-sql-client.sh embedded -f /pingcap/demo/{}".format(
-            sql_file_rel_path)
-        logger.debug("RUN CMD:\n\t{}\n".format(cmd))
+        logger.info("save flink sink sql to `{}`".format(flink_sql_path))
+        cmd = '{}/run-flink-client-sql.sh'.format(SCRIPT_DIR)
+        out, err, ret = run_cmd(cmd, False, env={
+            HUDI_WS: env_vars[HUDI_WS], 'SQL_PATH': sql_file_rel_path})
+        if ret:
+            logger.error(
+                "failed to run flink sql by flink client, error:\n{}".format(err))
+            exit(-1)
+        logger.info(
+            "success to run flink sql by flink client, sql file path: `{}`".format(flink_sql_path))
+        logger.info(
+            "please open flink jobmanager web site {}:{} for details".format(ip, env_vars[flink_jobmanager_port_name]))
 
     def run(self):
         self._init()
