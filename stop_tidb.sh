@@ -6,4 +6,4 @@ SCRIPT_PATH=$(
   pwd
 )
 
-docker compose -f ${SCRIPT_PATH}/.tmp.tidb-cluster.yml down
+docker compose -f ${SCRIPT_PATH}/.tmp.tidb-cluster.yml down 2>&1

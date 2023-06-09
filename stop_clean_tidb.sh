@@ -6,5 +6,5 @@ SCRIPT_PATH=$(
   pwd
 )
 
-docker compose -f ${SCRIPT_PATH}/.tmp.tidb-cluster.yml down
+${SCRIPT_PATH}/stop_tidb.sh
 rm -rf ${SCRIPT_PATH}/.tmp.demo/tidb

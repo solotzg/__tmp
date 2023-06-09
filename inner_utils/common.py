@@ -17,10 +17,10 @@ def wrap_run_time(func):
 
 
 @wrap_run_time
-def run_cmd(cmd, show_stdout=False):
+def run_cmd(cmd, show_stdout=False, env=None):
     logger.debug("RUN CMD:\n\t{}\n".format(cmd))
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+                            stderr=subprocess.PIPE, env=env)
     stdout = None
     if show_stdout:
         stdout = bytes()

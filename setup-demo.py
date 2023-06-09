@@ -23,6 +23,10 @@ tidb_compose_name = 'tidb-compose'
 hufi_flink_compose = 'hufi-flink-compose'
 cdc_name = "cdc"
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
+HUDI_WS = 'HUDI_WS'
+tidb_running = 'tidb_running'
+hudi_flink_running = 'hudi_flink_running'
+TIDB_BRANCH = 'TIDB_BRANCH'
 
 """
 create database tzg;
@@ -181,24 +185,66 @@ class Runner:
         parser.add_argument(
             '--sink_task_flink_schema_path', help='path to sql file include table schema for flink')
         parser.add_argument(
-            '--type', help='command type', choices=('deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task'))
+            '--type', help='command type', choices=(
+                'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
+                'down_hudi_flink', 'stop_tidb', 'down_tidb'))
         self.args = parser.parse_args()
         self.funcs_map = {
             'deploy_hudi_flink': self.deploy_hudi_flink,
             'deploy_tidb': self.deploy_tidb,
             'deploy_hudi_flink_tidb': self.deploy_hudi_flink_tidb,
             'sink_task': self.sink_task,
+            'down_hudi_flink': self.down_hudi_flink,
+            'stop_tidb': self.stop_tidb,
+            'down_tidb': self.down_tidb,
         }
 
         # mock
         self.args.start_port = 12345
         self.args.hudi_repo = "/data2/tongzhigao/hudi"
         self.args.env_libs = "/data2/tongzhigao/tmp/test"
-        self.args.type = 'sink_task'
+        self.args.type = 'down_hudi_flink'
         self.args.sink_task_desc = 'etl1.1.demo.t1'
         self.args.tidb_branch = 'release-6.5'
         self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
             SCRIPT_DIR)
+
+    def down_hudi_flink(self):
+        env_vars = self.load_env_vars()
+        logger.info(
+            "hudi flink is running, start to down docker compose")
+        cmd = '{}/down_hudi_flink.sh'.format(SCRIPT_DIR)
+        _, _, ret = run_cmd(cmd, True, env={HUDI_WS: env_vars[HUDI_WS]})
+        if ret:
+            logger.error("fail to stop hudi flink")
+            exit(-1)
+
+        self.update_env_vars({hudi_flink_running: False})
+
+    def down_tidb(self):
+        cmd = '{}/stop_clean_tidb.sh'.format(SCRIPT_DIR)
+        _, err, ret = run_cmd(cmd, True)
+        if ret:
+            logger.error("fail to stop tidb, error:\n{}".format(err))
+            exit(-1)
+
+        self.update_env_vars({tidb_running: False})
+
+    def stop_tidb(self):
+        env_vars = self.load_env_vars()
+        if env_vars.get(tidb_running, False):
+            logger.info(
+                "tidb is () running, start to stop tidb docker compose".format(env_vars[TIDB_BRANCH]))
+            cmd = '{}/stop_tidb.sh'.format(SCRIPT_DIR)
+            _, err, ret = run_cmd(cmd, True)
+            if ret:
+                logger.error("fail to stop tidb, error:\n{}".format(err))
+                exit(-1)
+
+            self.update_env_vars({tidb_running: False})
+
+        else:
+            logger.info("tidb is NOT running")
 
     def setup_env_libs(self):
         assert self.args.env_libs
@@ -252,6 +298,29 @@ class Runner:
         self.gen_tidb_cluster_config_file_from_template(
             self.args.start_port + TIDB_START_PORT_OFFSET, self.args.tidb_branch)
 
+        env_vars = self.load_env_vars()
+        if env_vars.get(tidb_running, False):
+            logger.info(
+                "tidb ({}) is running, please stop tidb docker compose if necessary".format(env_vars[TIDB_BRANCH]))
+            return
+        else:
+            logger.info("tidb is NOT running, start docker compose cluster")
+
+        logger.info(
+            "start to deploy tidb ({}) cluster".format(env_vars[TIDB_BRANCH]))
+
+        cmd = '{}/setup_tidb.sh'.format(SCRIPT_DIR)
+        _, stderr, retcode = run_cmd(cmd, show_stdout=True,)
+        if retcode:
+            logger.error(
+                "failed to deploy tidb cluster, error:\n{}".format(stderr))
+            exit(-1)
+
+        def func(env_data):
+            env_data[tidb_running] = True
+            return env_data, True
+        try_handle_env_data(func)
+
     def gen_tidb_cluster_config_file_from_template(self, start_port, branch):
         template_file = '{}/{}'.format(SCRIPT_DIR,
                                        'tidb-cluster.yml.template')
@@ -275,7 +344,7 @@ class Runner:
                     "port {} is occupied, please set new `start_port`".format(port))
                 exit(-1)
             var_map[v] = port
-        var_map['TIDB_BRANCH'] = branch
+        var_map[TIDB_BRANCH] = branch
         var_map['pingcap_demo_path'] = SCRIPT_DIR
         logger.debug("set basic config: {}".format(var_map))
         with open(config_file_path, 'w') as f:
@@ -313,7 +382,7 @@ class Runner:
                     "port {} is occupied, please set new `start_port`".format(port))
                 exit(-1)
             var_map[v] = port
-        var_map['HUDI_WS'] = hudi_root
+        var_map[HUDI_WS] = hudi_root
         var_map['pingcap_demo_path'] = SCRIPT_DIR
         var_map['env_libs'] = env_libs_path
         logger.debug("set basic config: {}".format(var_map))
@@ -335,17 +404,43 @@ class Runner:
         self.setup_env_libs()
         self.gen_flink_config_file_from_template(
             self.args.start_port + HUDI_START_PORT_OFFSET, self.args.hudi_repo, self.args.env_libs)
+        env_vars = self.load_env_vars()
+        if env_vars.get(hudi_flink_running, False):
+            logger.info(
+                "hudi flink is running, please stop hudi flink docker compose if necessary")
+            return
+        else:
+            logger.info(
+                "hudi flink is NOT running, start docker compose cluster")
+        cmd = '{}/setup_hudi_flink.sh'.format(SCRIPT_DIR)
+        _, stderr, retcode = run_cmd(cmd, show_stdout=True, env={
+                                     HUDI_WS: env_vars[HUDI_WS]})
+        if retcode:
+            logger.error(
+                "failed to deploy hudi flink cluster, error:\n{}".format(stderr))
+            exit(-1)
+
+        def func(env_data):
+            env_data[hudi_flink_running] = True
+            return env_data, True
+        try_handle_env_data(func)
 
     def deploy_hudi_flink_tidb(self):
         self.deploy_hudi_flink()
         self.deploy_tidb()
 
-    def load_env_vars(self):
+    def load_env_vars(self) -> dict:
         def func(env_data):
-            self.env_data = env_data.copy()
-            return env_data, False
+            self.env_data = env_data
+            return None, False
         try_read_handle_env_data(func)
         return self.env_data
+
+    def update_env_vars(self, new_data):
+        def func(env_data):
+            env_data.update(new_data)
+            return env_data, True
+        try_handle_env_data(func)
 
     def sink_task(self):
         assert self.args.sink_task_desc
@@ -392,7 +487,7 @@ class Runner:
         flink_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
         with open(flink_path, 'w') as f:
             f.write(template.substitute(var_map))
-        logger.info("save flink sink sql to {}".format(flink_path))
+        logger.info("save flink sink sql to `{}`".format(flink_path))
         cmd = "/pingcap/demo/flink-sql-client.sh embedded -f /pingcap/demo/{}".format(
             sql_file_rel_path)
         logger.debug("RUN CMD:\n\t{}\n".format(cmd))
@@ -463,9 +558,9 @@ def try_handle_env_data(func):
         if not need_update:
             return
         f.seek(0, 0)
+        f.truncate(0)
         json.dump(new_data, f)
-        logger.info("save env vars `{}` to `{}`".format(
-            new_data, env_file_path))
+    logger.info("save env vars `{}` to `{}`".format(new_data, env_file_path))
 
 
 def try_read_handle_env_data(func):
@@ -489,9 +584,7 @@ def main():
     # gen_flink_config_file_from_template(123455, '/data2/tongzhigao/hudi')
     # gen_ticdc_config_file('sink', "tzg", "t1")
     # gen_tidb_cluster_config_file_from_template(12345, "release-6.5")
-    # Runner().run()
-    var_set = sorted(TIDB_VARS_SET)
-    print(var_set)
+    Runner().run()
 
 
 if __name__ == '__main__':

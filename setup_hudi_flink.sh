@@ -16,8 +16,8 @@ else
 fi
 
 # restart cluster
-HUDI_WS=${HUDI_WS} docker compose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} down
-HUDI_WS=${HUDI_WS} docker compose --verbose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} up -d
+HUDI_WS=${HUDI_WS} docker compose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} down 2>&1
+HUDI_WS=${HUDI_WS} docker compose --verbose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} up -d 2>&1
 
 sleep 15
 

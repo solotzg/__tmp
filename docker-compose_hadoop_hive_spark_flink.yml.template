@@ -191,26 +191,6 @@ services:
     volumes:
       - ${HUDI_WS}:/var/hoodie/ws
 
-  adhoc-2:
-    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkadhoc_2.4.4:latest
-    hostname: adhoc-2
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    # ports:
-      # JVM debugging port (mapped to 5005 on the host)
-      # - "5005:5005"
-    depends_on:
-      - sparkmaster
-    environment:
-      - "SPARK_MASTER=spark://sparkmaster:7077"
-    links:
-      - "hivemetastore"
-      - "hiveserver"
-      - "hive-metastore-postgresql"
-      - "namenode"
-    volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
-
   jobmanager:
     image: flink:1.13
     volumes:
