@@ -122,16 +122,30 @@ class Runner:
             if self.java_home is None:
                 logger.info("env var `{}` not found".format(
                     java_home_var_name))
-                stdout, _, returncode = run_cmd(
-                    '{}/install-jdk1.8.sh'.format(SCRIPT_DIR), show_stdout=True)
-                assert not returncode
-                for line in stdout.split('\n'):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith('JAVA_HOME:'):
-                        self.java_home = line.split(':')[1]
-                        break
+                env_java_home = os.getenv(java_home_var_name)
+                ok = True
+                if env_java_home is not None:
+                    cmd = '{}/bin/javac -version 2>&1'.format(env_java_home)
+                    out, _, retcode = run_cmd(cmd)
+                    if retcode:
+                        logger.error(
+                            "failed to exec `{}`, error:\n{}".format(cmd, err))
+                        exit(-1)
+                    if not out.startswith('javac'):
+                        ok = False
+                    else:
+                        java_version = out[len('javac')+1:].split('.')
+                        if java_version[0] == '1' and java_version[1] == '8':
+                            self.java_home = env_java_home
+                        else:
+                            logger.error('using {}'.format(out.strip()))
+                            ok = False
+                else:
+                    ok = False
+                if not ok:
+                    logger.error(
+                        "please install jdk 1.8 and set export `JAVA_HOME` before running this scripts")
+                    exit(-1)
                 assert self.java_home
                 env_data[java_home_var_name] = self.java_home
                 logger.info("save env var `{}`: `{}`".format(
@@ -616,7 +630,7 @@ def try_read_handle_env_data(func):
 
 
 def main():
-    Runner().run()
+    Runner().install_jdk1_8()
 
 
 if __name__ == '__main__':
