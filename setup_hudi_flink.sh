@@ -21,4 +21,4 @@ HUDI_WS=${HUDI_WS} docker compose --verbose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAM
 
 sleep 15
 
-docker exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
+HUDI_WS=${HUDI_WS} docker compose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
