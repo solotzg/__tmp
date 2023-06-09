@@ -146,12 +146,17 @@ class Runner:
 
         return self.java_home
 
-    def compile_hudi(self, hudi_path, need_clean=False):
+    def compile_hudi(self):
+        assert self.args.hudi_repo
+        hudi_path = self.args.hudi_repo
         assert os.path.exists(hudi_path)
+
+        need_clean = True
         java_home = self.install_jdk1_8()
 
         def handle_compile_hudi(env_data):
-            hudi_compiled_time = env_data.get('hudi_compiled')
+            hudi_compiled = 'hudi_compiled'
+            hudi_compiled_time = env_data.get(hudi_compiled)
             if hudi_compiled_time is not None:
                 logger.info('hudi was compiled at `{}`'.format(
                     hudi_compiled_time))
@@ -164,7 +169,7 @@ class Runner:
                 logger.error(stderr)
                 exit(-1)
             dt_ms = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-            env_data['hudi_compiled'] = dt_ms
+            env_data[hudi_compiled] = dt_ms
             logger.info('set hudi compiled time: {}'.format(
                 hudi_compiled_time))
             return env_data, True
@@ -179,7 +184,7 @@ class Runner:
         parser.add_argument(
             '--env_libs', help='path to env binary and libs')
         parser.add_argument(
-            '--start_port', help='start port')
+            '--start_port', help='start port for different components {}'.format(HUDI_FLINK_VARS_SET.union(TIDB_VARS_SET)))
         parser.add_argument(
             '--tidb_branch', help='tidb branch name: master, release-x.y, ...')
         parser.add_argument(
@@ -187,9 +192,9 @@ class Runner:
         parser.add_argument(
             '--sink_task_flink_schema_path', help='path to sql file include table schema for flink')
         parser.add_argument(
-            '--type', help='command type', choices=(
+            '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
-                'down_hudi_flink', 'stop_tidb', 'down_tidb'))
+                'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info'))
         self.args = parser.parse_args()
         self.funcs_map = {
             'deploy_hudi_flink': self.deploy_hudi_flink,
@@ -199,17 +204,23 @@ class Runner:
             'down_hudi_flink': self.down_hudi_flink,
             'stop_tidb': self.stop_tidb,
             'down_tidb': self.down_tidb,
+            'compile_hudi': self.compile_hudi,
+            'show_env_vars_info': self.show_env_vars_info,
         }
 
         # mock
-        self.args.start_port = 12345
-        self.args.hudi_repo = "/data2/tongzhigao/hudi"
-        self.args.env_libs = "/data2/tongzhigao/tmp/test"
-        self.args.type = 'sink_task'
-        self.args.sink_task_desc = 'etl1.1.demo.t1'
-        self.args.tidb_branch = 'release-6.5'
-        self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
-            SCRIPT_DIR)
+        # self.args.start_port = 12345
+        # self.args.hudi_repo = "/data2/tongzhigao/hudi"
+        # self.args.env_libs = "/data2/tongzhigao/tmp/test"
+        # self.args.cmd = 'deploy_hudi_flink_tidb'
+        # self.args.sink_task_desc = 'etl1.1.demo.t1'
+        # self.args.tidb_branch = 'release-6.5'
+        # self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
+        #     SCRIPT_DIR)
+
+    def show_env_vars_info(self):
+        env_vars = self.load_env_vars()
+        print(env_vars)
 
     def down_hudi_flink(self):
         env_vars = self.load_env_vars()
@@ -446,7 +457,6 @@ class Runner:
 
     def sink_task(self):
         assert self.args.sink_task_desc
-        assert self.args.hudi_repo
         assert self.args.sink_task_flink_schema_path
 
         _p = self.args.sink_task_desc.split('.')
@@ -517,7 +527,7 @@ class Runner:
 
     def run(self):
         self._init()
-        func = self.funcs_map.get(self.args.type)
+        func = self.funcs_map.get(self.args.cmd)
         if func is None:
             exit(-1)
         func()
@@ -604,9 +614,6 @@ def try_read_handle_env_data(func):
 
 
 def main():
-    # gen_flink_config_file_from_template(123455, '/data2/tongzhigao/hudi')
-    # gen_ticdc_config_file('sink', "tzg", "t1")
-    # gen_tidb_cluster_config_file_from_template(12345, "release-6.5")
     Runner().run()
 
 
