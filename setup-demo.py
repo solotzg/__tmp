@@ -357,6 +357,7 @@ class Runner:
         var_map['pingcap_demo_path'] = SCRIPT_DIR
         host = get_host_name()
         var_map[demo_host] = host
+        var_map[env_libs_name] = self.args.env_libs
         logger.debug("set basic config: {}".format(var_map))
         d = template.substitute(var_map)
         with open(config_file_path, 'w') as f:
