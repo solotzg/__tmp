@@ -129,7 +129,7 @@ class Runner:
                     out, _, retcode = run_cmd(cmd)
                     if retcode:
                         logger.error(
-                            "failed to exec `{}`, error:\n{}".format(cmd, err))
+                            "failed to exec `{}`, error:\n{}".format(cmd, out))
                         exit(-1)
                     if not out.startswith('javac'):
                         ok = False
