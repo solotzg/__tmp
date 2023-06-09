@@ -7,4 +7,4 @@ SCRIPT_PATH=$(
 )
 
 ${SCRIPT_PATH}/stop_tidb.sh
-rm -rf ${SCRIPT_PATH}/tidb/.tmp.demo/tidb
+rm -rf ${SCRIPT_PATH}/.tmp.demo/tidb
