@@ -630,7 +630,7 @@ def try_read_handle_env_data(func):
 
 
 def main():
-    Runner().install_jdk1_8()
+    Runner().run()
 
 
 if __name__ == '__main__':
