@@ -158,16 +158,6 @@ class Runner:
             'down': self.down,
         }
 
-        # mock
-        # self.args.start_port = 12345
-        # self.args.hudi_repo = "/data2/tongzhigao/hudi"
-        # self.args.env_libs = "/data2/tongzhigao/tmp/test"
-        # self.args.cmd = 'deploy_hudi_flink_tidb'
-        # self.args.sink_task_desc = 'etl1.1.demo.t1'
-        # self.args.tidb_branch = 'release-6.5'
-        # self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
-        #     SCRIPT_DIR)
-
     def down(self):
         self.down_hudi_flink()
         self.down_tidb()
