@@ -154,6 +154,7 @@ class Runner:
             'down_tidb': self.down_tidb,
             'compile_hudi': self.compile_hudi,
             'show_env_vars_info': self.show_env_vars_info,
+            'down': self.down,
         }
 
         # mock
@@ -165,6 +166,10 @@ class Runner:
         # self.args.tidb_branch = 'release-6.5'
         # self.args.sink_task_flink_schema_path = '{}/example/flink.sql.template'.format(
         #     SCRIPT_DIR)
+
+    def down(self):
+        self.down_hudi_flink()
+        self.down_tidb()
 
     def show_env_vars_info(self):
         env_vars = self.load_env_vars()
