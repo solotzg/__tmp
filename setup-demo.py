@@ -140,7 +140,8 @@ class Runner:
         parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
-                'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info'))
+                'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
+                'down',))
         self.args = parser.parse_args()
         if self.args.start_port is not None:
             self.args.start_port = int(self.args.start_port)
