@@ -31,6 +31,7 @@ TIDB_BRANCH = 'TIDB_BRANCH'
 demo_host = 'demo_host'
 env_libs_name = 'env_libs'
 start_port_name = 'start_port'
+hadoop_name = "hadoop-2.8.4"
 
 
 def get_host_name():
@@ -225,7 +226,6 @@ class Runner:
         if self.args.env_libs != env_vars.get(env_libs_name):
             self.update_env_vars({env_libs_name: self.args.env_libs})
 
-        hadoop_name = "hadoop-2.8.4"
         hadoop_path = os.path.join(self.args.env_libs, hadoop_name)
         hadoop_tar_name = '{}.tar.gz'.format(hadoop_name)
         hadoop_url = "{}/{}".format(DOWNLOAD_URL, hadoop_tar_name)
@@ -238,8 +238,15 @@ class Runner:
             DOWNLOAD_URL, hudi_flink_bundle_name)
 
         if not os.path.exists(hadoop_path):
-            _, _, status = run_cmd("cd {} && curl -o {} {} && tar zxf {} && cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml".format(
-                self.args.env_libs, hadoop_tar_name, hadoop_url, hadoop_tar_name, SCRIPT_DIR, hadoop_name))
+            tmp_hadoop_name = '.tmp'
+            cmd = ['cd {} && mkdir -p .tmp'.format(self.args.env_libs),
+                   'curl -o {} {}'.format(hadoop_tar_name, hadoop_url),
+                   'rm -rf {} && rm -rf .tmp/{}'.format(
+                       hadoop_name, hadoop_name),
+                   'tar zxf {} -C .tmp'.format(hadoop_tar_name),
+                   'mv .tmp/{} {}'.format(hadoop_name, hadoop_name),
+                   'cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml'.format(SCRIPT_DIR, hadoop_name)]
+            _, _, status = run_cmd(' && ' .join(cmd))
             assert status == 0
         if not os.path.exists(os.path.join(self.args.env_libs, flink_sql_connector_name)):
             _, _, status = run_cmd("cd {} && wget {}".format(
