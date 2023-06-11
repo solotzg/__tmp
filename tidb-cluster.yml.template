@@ -60,6 +60,7 @@ services:
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/ticdc_server0:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/ticdc_server0:/log
+      - ${pingcap_demo_path}:/pingcap/demo
     command:
       - /cdc
       - server

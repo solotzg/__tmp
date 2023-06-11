@@ -23,7 +23,6 @@ TIDB_VARS_SET = {"pd_port", "tikv_status_port",
                  tidb_port_name, ticdc_port_name}
 tidb_compose_name = 'tidb-compose'
 hufi_flink_compose = 'hufi-flink-compose'
-cdc_name = "cdc"
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
 HUDI_WS = 'HUDI_WS'
 tidb_running = 'tidb_running'
@@ -141,7 +140,7 @@ class Runner:
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
-                'down',))
+                'down', 'clean'))
         self.args = parser.parse_args()
         if self.args.start_port is not None:
             self.args.start_port = int(self.args.start_port)
@@ -156,7 +155,18 @@ class Runner:
             'compile_hudi': self.compile_hudi,
             'show_env_vars_info': self.show_env_vars_info,
             'down': self.down,
+            'clean': self.clean,
         }
+
+    def clean(self):
+        self.down()
+        env_vars = self.load_env_vars()
+        files = [env_vars.get(hufi_flink_compose),
+                 env_vars.get(tidb_compose_name)]
+        for p in files:
+            if p:
+                logger.info("remove `{}`".format(p))
+                os.remove(p)
 
     def down(self):
         self.down_hudi_flink()
@@ -227,9 +237,6 @@ class Runner:
         hudi_flink_bundle_url = "{}/{}".format(
             DOWNLOAD_URL, hudi_flink_bundle_name)
 
-        cdc_url = "{}/{}".format(
-            DOWNLOAD_URL, cdc_name)
-
         if not os.path.exists(hadoop_path):
             _, _, status = run_cmd("cd {} && curl -o {} {} && tar zxf {} && cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml".format(
                 self.args.env_libs, hadoop_tar_name, hadoop_url, hadoop_tar_name, SCRIPT_DIR, hadoop_name))
@@ -242,9 +249,6 @@ class Runner:
             _, _, status = run_cmd("cd {} && wget {}".format(
                 self.args.env_libs, hudi_flink_bundle_url))
             assert status == 0
-        if not os.path.exists(os.path.join(self.args.env_libs, cdc_name)):
-            _, _, status = run_cmd("cd {} && wget {} && chmod +x {}".format(
-                self.args.env_libs, cdc_url, cdc_name))
             assert status == 0
 
     def deploy_tidb(self):
@@ -452,13 +456,14 @@ class Runner:
         replication_factor = 1
         topic = '{}-sink-{}'.format(etl_uid, table_id)
         changefeed_id = topic
-        cdc_config = gen_ticdc_config_file(
+        cdc_config_file = gen_ticdc_config_file(
             etl_uid, table_id, db, table_name)
-        cdc_bin_path = os.path.join(self.args.env_libs, cdc_name)
+        cdc_config_file_name = os.path.basename(cdc_config_file)
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
-        cmd = '{} cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
-            cdc_bin_path, cdc_server, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config)
+        run_cdc_cli = '{}/run-cdc-cli.sh'.format(SCRIPT_DIR)
+        cmd = '{} \' /cdc cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config=/pingcap/demo/{} \''.format(
+            run_cdc_cli, cdc_server, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name)
         _, err, ret = run_cmd(cmd, True)
         if ret:
             logger.error(
