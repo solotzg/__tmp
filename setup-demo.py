@@ -14,13 +14,13 @@ DOWNLOAD_URL = 'http://10.2.12.124:19876'
 HUDI_START_PORT_OFFSET = 0
 kafka_port_name = 'kafka_port'
 flink_jobmanager_port_name = 'flink_jobmanager_port'
-HUDI_FLINK_VARS_SET = {"hadoop_web_port", "hdfs_port", "historyserver_port", "hiveserver_port",
-                       "spark_web_port", "spark_master_port", kafka_port_name, flink_jobmanager_port_name}
-TIDB_START_PORT_OFFSET = len(HUDI_FLINK_VARS_SET) + HUDI_START_PORT_OFFSET
+HUDI_FLINK_PORT_NAME_SET = {"hadoop_web_port", "hdfs_port", "historyserver_port", "hiveserver_port",
+                            "spark_web_port", "spark_master_port", kafka_port_name, flink_jobmanager_port_name}
+TIDB_START_PORT_OFFSET = len(HUDI_FLINK_PORT_NAME_SET) + HUDI_START_PORT_OFFSET
 ticdc_port_name = 'ticdc_port'
 tidb_port_name = 'tidb_port'
-TIDB_VARS_SET = {"pd_port", "tikv_status_port",
-                 tidb_port_name, ticdc_port_name}
+TIDB_PORT_NAME_SET = {"pd_port", "tikv_status_port",
+                      tidb_port_name, ticdc_port_name}
 tidb_compose_name = 'tidb-compose'
 hufi_flink_compose = 'hufi-flink-compose'
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
@@ -130,7 +130,7 @@ class Runner:
         parser.add_argument(
             '--env_libs', help='path to env binary and libs')
         parser.add_argument(
-            '--start_port', help='start port for different components {}'.format(HUDI_FLINK_VARS_SET.union(TIDB_VARS_SET)))
+            '--start_port', help='start port for different components {}'.format(HUDI_FLINK_PORT_NAME_SET.union(TIDB_PORT_NAME_SET)))
         parser.add_argument(
             '--tidb_branch', help='tidb branch name: master, release-x.y, ...')
         parser.add_argument(
@@ -238,7 +238,6 @@ class Runner:
             DOWNLOAD_URL, hudi_flink_bundle_name)
 
         if not os.path.exists(hadoop_path):
-            tmp_hadoop_name = '.tmp'
             cmd = ['cd {} && mkdir -p .tmp'.format(self.args.env_libs),
                    'curl -o {} {}'.format(hadoop_tar_name, hadoop_url),
                    'rm -rf {} && rm -rf .tmp/{}'.format(
@@ -289,6 +288,14 @@ class Runner:
         logger.info(
             "start to deploy tidb ({}) cluster".format(env_vars[TIDB_BRANCH]))
 
+        for port_name in TIDB_PORT_NAME_SET:
+            port = env_vars.get(port_name)
+            if port is None:
+                continue
+            if is_port_occupied(port):
+                logger.error("{}: {} is occupied".format(port_name, port))
+                exit(-1)
+
         cmd = '{}/setup_tidb.sh'.format(SCRIPT_DIR)
         _, stderr, retcode = run_cmd(cmd, show_stdout=True,)
         if retcode:
@@ -313,11 +320,11 @@ class Runner:
 
         template_context = load_file(template_file)
         template = Template(template_context)
-        var_set = sorted(TIDB_VARS_SET)
+        var_set = sorted(TIDB_PORT_NAME_SET)
         var_map = {}
         for i, v in enumerate(var_set):
             port = start_port+i
-            if check_port_occupied(port):
+            if is_port_occupied(port):
                 logger.error(
                     "port {} is occupied, please set new `start_port`".format(port))
                 exit(-1)
@@ -351,11 +358,11 @@ class Runner:
             return
         template_context = load_file(template_file)
         template = Template(template_context)
-        var_set = sorted(HUDI_FLINK_VARS_SET)
+        var_set = sorted(HUDI_FLINK_PORT_NAME_SET)
         var_map = {}
         for i, v in enumerate(var_set):
             port = start_port+i
-            if check_port_occupied(port):
+            if is_port_occupied(port):
                 logger.error(
                     "port {} is occupied, please set new `start_port`".format(port))
                 exit(-1)
@@ -507,7 +514,7 @@ class Runner:
         func()
 
 
-def check_port_occupied(port):
+def is_port_occupied(port):
     s = socket.socket()
     try:
         s.connect(("127.0.0.1", port))
