@@ -182,6 +182,9 @@ class Runner:
             "--job_id", help="flink job id",
         )
         parser.add_argument(
+            '--hdfs_uri', help="hdfs uri like `/a/b/c`"
+        )
+        parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
@@ -565,13 +568,13 @@ class Runner:
     def rm_hdfs_file(self):
         assert self.args.hdfs_uri
         cmd = '{}/run-flink-bash.sh {}'.format(
-            SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hadoop dfs -rm -r hdfs://namenode:8020/{}'.format(
+            SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r hdfs://namenode:8020/{}'.format(
                 self.args.hdfs_uri))
         out, err, ret = run_cmd(
             cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
         if ret:
             logger.error(
-                "failed to delete {}, error:\n{}\n".format(self.args.hdfs_uri, err))
+                "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_uri, out, err))
             exit(-1)
         logger.info("\n{}\n".format(out))
 
