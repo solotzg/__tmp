@@ -5,13 +5,12 @@ create table demo_flink.t1(a int PRIMARY KEY, b int) with('connector'='kafka', '
 create database demo_hudi;
 CREATE TABLE demo_hudi.t1(
   a INT PRIMARY KEY NOT ENFORCED,
-  b INT,
-  `partition` VARCHAR(20)
-) PARTITIONED BY (`partition`) WITH (
+  b INT
+) WITH (
   'connector' = 'hudi',
   'path' = 'hdfs://${hdfs_address}/pingcap/demo/hudi_t1',
   'table.type' = 'MERGE_ON_READ',
   'read.streaming.enabled' = 'true',
   'read.streaming.check-interval' = '1'
 );
-INSERT INTO demo_hudi.t1(a,b, `partition`) (select a,b,'p1' from demo_flink.t1);
+INSERT INTO demo_hudi.t1(a,b) (select a,b from demo_flink.t1);
