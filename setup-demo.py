@@ -34,6 +34,10 @@ start_port_name = 'start_port'
 hadoop_name = "hadoop-2.8.4"
 java_home_var_name = 'JAVA_HOME'
 tidb_version_prefix = 'release-'
+etl_jobs_name = "etl_jobs"
+ticdc_changefeed_name = 'ticdc_changefeed'
+flink_job_name = 'flink_job'
+hdfs_name = 'hdfs'
 
 
 def get_host_name():
@@ -170,7 +174,7 @@ class Runner:
         parser.add_argument(
             '--sink_task_flink_schema_path', help='path to sql file include table schema for flink and hudi')
         parser.add_argument(
-            '--cdc_changefeed_id', help="changefeed id of ticdc task. use `--cmd list_ticdc_tasks` to list all tasks"
+            '--cdc_changefeed_id', help="changefeed id of ticdc task. use `--cmd list_ticdc_jobs` to list all tasks"
         )
         parser.add_argument(
             '--tso', help="tso from PD"
@@ -179,17 +183,20 @@ class Runner:
             "--changefeed_start_ts", help="Specifies the starting TSO of the changefeed. From this TSO, the TiCDC cluster starts pulling data. The default value is the current time",
         )
         parser.add_argument(
-            "--job_id", help="flink job id",
+            "--flink_job_id", help="flink job id",
         )
         parser.add_argument(
-            '--hdfs_uri', help="hdfs uri like `/a/b/c`"
+            "--etl_job_id", help="tidb etl job id",
+        )
+        parser.add_argument(
+            '--hdfs_url', help="hdfs url like `hdfs://namenode:8020/a/b/c`"
         )
         parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
-                'down', 'clean', 'list_ticdc_tasks', 'del_cdc_task', 'parse_tso', 'list_flink_job',
-                'rm_hdfs_file',), required=True)
+                'down', 'clean', 'list_ticdc_jobs', 'rm_ticdc_job', 'parse_tso', 'list_flink_jobs',
+                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job',), required=True)
         self.args = parser.parse_args()
         self.funcs_map = {
             'deploy_hudi_flink': self.deploy_hudi_flink,
@@ -203,13 +210,48 @@ class Runner:
             'show_env_vars_info': self.show_env_vars_info,
             'down': self.down,
             'clean': self.clean,
-            'list_ticdc_tasks': self.list_ticdc_tasks,
-            'del_cdc_task': self.del_cdc_task,
+            'list_ticdc_jobs': self.list_ticdc_jobs,
+            'rm_ticdc_job': self.rm_ticdc_job,
             'parse_tso': self.parse_tso,
-            'list_flink_job': self.list_flink_job,
-            'cancel_flink_job': self.cancel_flink_job,
-            'rm_hdfs_file': self.rm_hdfs_file,
+            'list_flink_jobs': self.list_flink_jobs,
+            'rm_flink_job': self.rm_flink_job,
+            'rm_hdfs_dir': self.rm_hdfs_dir,
+            'list_etl_jobs': self.list_etl_jobs,
+            'rm_etl_job': self.rm_etl_job,
         }
+
+    def rm_etl_job(self):
+        assert self.args.etl_job_id
+        etl_jobs = self.env_vars.get(etl_jobs_name, {})
+        job: dict = etl_jobs.get(self.args.etl_job_id)
+        if job:
+            logger.info("start to remove etl job `{}`:\n{}\n".format(
+                self.args.etl_job_id, job))
+            for tid, table in job.items():
+                logger.info("start to clean data for table `{}`".format(tid))
+                x = table.get(ticdc_changefeed_name)
+                if x is not None:
+                    for a in x:
+                        self.args.cdc_changefeed_id = a
+                        self.rm_ticdc_job()
+                x = table.get(flink_job_name)
+                if x is not None:
+                    for a in x:
+                        self.args.flink_job_id = a
+                        self.rm_flink_job()
+                x = table.get(hdfs_name)
+                if x is not None:
+                    for a in x:
+                        self.args.hdfs_url = a
+                        self.rm_hdfs_dir()
+
+        else:
+            logger.warning("etl job `{}` NOT found".format(
+                self.args.etl_job_id))
+
+    def list_etl_jobs(self):
+        etl_jobs = self.env_vars.get(etl_jobs_name, {})
+        logger.info("\n{}\n".format(etl_jobs))
 
     def parse_tso(self):
         assert self.args.tso
@@ -222,7 +264,7 @@ class Runner:
         else:
             logger.info('\n{}'.format(out))
 
-    def list_ticdc_tasks(self):
+    def list_ticdc_jobs(self):
         host = get_host_name()
         cdc_server = "http://{}:{}".format(host,
                                            self.env_vars[ticdc_port_name])
@@ -236,7 +278,7 @@ class Runner:
             exit(-1)
         logger.info('\n{}'.format(out))
 
-    def del_cdc_task(self):
+    def rm_ticdc_job(self):
         assert self.args.cdc_changefeed_id
 
         host = get_host_name()
@@ -542,10 +584,10 @@ class Runner:
         self.deploy_hudi_flink()
         self.deploy_tidb()
 
-    def cancel_flink_job(self):
-        assert self.args.job_id
+    def rm_flink_job(self):
+        assert self.args.flink_job_id
         cmd = '{}/run-flink-bash.sh {}'.format(
-            SCRIPT_DIR, '/opt/flink/bin/flink cancel {}'.format(self.args.job_id))
+            SCRIPT_DIR, '/opt/flink/bin/flink cancel {}'.format(self.args.flink_job_id))
         out, err, ret = run_cmd(
             cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
         if ret:
@@ -554,7 +596,7 @@ class Runner:
             exit(-1)
         logger.info("\n{}\n".format(out))
 
-    def list_flink_job(self):
+    def list_flink_jobs(self):
         cmd = '{}/run-flink-bash.sh {}'.format(
             SCRIPT_DIR, '/opt/flink/bin/flink list')
         out, err, ret = run_cmd(
@@ -565,16 +607,15 @@ class Runner:
             exit(-1)
         logger.info("\n{}\n".format(out))
 
-    def rm_hdfs_file(self):
-        assert self.args.hdfs_uri
+    def rm_hdfs_dir(self):
+        assert self.args.hdfs_url
         cmd = '{}/run-flink-bash.sh {}'.format(
-            SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r hdfs://namenode:8020/{}'.format(
-                self.args.hdfs_uri))
+            SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'.format(self.args.hdfs_url))
         out, err, ret = run_cmd(
             cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
         if ret:
             logger.error(
-                "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_uri, out, err))
+                "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_url, out, err))
             exit(-1)
         logger.info("\n{}\n".format(out))
 
@@ -630,15 +671,26 @@ class Runner:
                 "failed to create table sink task by ticdc client, error:\n{}".format(err))
             exit(-1)
 
-        template = Template(load_file(self.args.sink_task_flink_schema_path))
+        content = load_file(self.args.sink_task_flink_schema_path)
+        template = Template(content)
         var_map = {"kafka_address": "kafkabroker:9092",
                    "kafka_topic": topic, "hdfs_address": "namenode:8020"}
         logger.debug("set basic config: {}".format(var_map))
         sql_file_rel_path = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
             etl_uid, table_id, db, table_name)
         flink_sql_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
+        content = template.substitute(var_map)
+
+        bg = content.find('hdfs://')
+        assert bg != -1
+        end = content.find("'", bg)
+        end = end if end != -1 else content.find('"', bg)
+        assert end != -1
+        assert content.find('hdfs://', end) == -1
+        hdfs_addr = content[bg:end]
+
         with open(flink_sql_path, 'w') as f:
-            f.write(template.substitute(var_map))
+            f.write(content)
         logger.info("save flink sink sql to `{}`".format(flink_sql_path))
         cmd = '{}/run-flink-client-sql.sh'.format(SCRIPT_DIR)
         out, err, ret = run_cmd(cmd, False, env={
@@ -657,11 +709,29 @@ class Runner:
         if job_id:
             logger.info(
                 "success to run flink sql by flink client, sql file path: `{}`, job_id: `{}`".format(flink_sql_path, job_id))
-        else:
             logger.info(
+                "please open flink jobmanager web site http://{}:{} for details".format(host, env_vars[flink_jobmanager_port_name]))
+        else:
+            logger.error(
                 "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_path, out))
-        logger.info(
-            "please open flink jobmanager web site http://{}:{} for details".format(host, env_vars[flink_jobmanager_port_name]))
+            exit(-1)
+
+        self.save_etl(
+            etl_uid,
+            {
+                table_id:
+                {
+                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: [job_id,], hdfs_name: [hdfs_addr,],
+                }
+            }
+        )
+
+    def save_etl(self, etl_uid, v):
+        logger.info("save etl job `{}`:\n{}\n".format(etl_uid, v))
+        data = self.env_vars
+        etl_jobs = data.setdefault(etl_jobs_name, {})
+        etl_jobs[etl_uid] = v
+        self.env_vars = data
 
     def run(self):
         self._init()
