@@ -620,25 +620,9 @@ class Runner:
             return
         logger.info("\n{}\n".format(out))
 
-    def sink_task(self):
-        assert self.args.sink_task_desc
-        assert self.args.sink_task_flink_schema_path
-
-        _p = self.args.sink_task_desc.split('.')
-        if len(_p) != 4:
-            logger.error(
-                "invalid sink format, need `etl_uid.table_id.db_name.table_name`")
-        etl_uid, table_id, db, table_name = self.args.sink_task_desc.split('.')
-
-        assert os.path.exists(self.args.sink_task_flink_schema_path)
-
-        table_id = int(table_id)
-        self.setup_env_libs()
-        env_vars = self.env_vars
-        host = get_host_name()
-
+    def sink_task_check_tidb_schema(self, db, table_name):
         out, err, ret = run_cmd(
-            "mysql -h 0.0.0.0 -P {} -u root -e 'desc {}.{}' ".format(env_vars[tidb_port_name], db, table_name))
+            "mysql -h 0.0.0.0 -P {} -u root -e 'desc {}.{}' ".format(self.env_vars[tidb_port_name], db, table_name))
         if ret:
             logger.error("tidb error:\n{}".format(err))
             exit(-1)
@@ -646,8 +630,10 @@ class Runner:
             logger.info('schema of `{}`.`{}` is:\n{}'.format(
                 db, table_name, out))
 
-        cdc_server = "http://{}:{}".format(host, env_vars[ticdc_port_name])
-        kafka_addr = "{}:{}".format(host, env_vars[kafka_port_name])
+    def create_ticdc_sink_job_to_kafka(self, host, etl_uid, table_id, db, table_name):
+        cdc_server = "http://{}:{}".format(host,
+                                           self.env_vars[ticdc_port_name])
+        kafka_addr = "{}:{}".format(host, self.env_vars[kafka_port_name])
         protocol = "canal-json"
         kafka_version = "2.4.0"
         partition_num = 1
@@ -672,6 +658,9 @@ class Runner:
                 "failed to create table sink task by ticdc client, error:\n{}".format(err))
             exit(-1)
 
+        return topic, changefeed_id
+
+    def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic):
         content = load_file(self.args.sink_task_flink_schema_path)
         template = Template(content)
         var_map = {"kafka_address": "kafkabroker:9092",
@@ -695,7 +684,7 @@ class Runner:
         logger.info("save flink sink sql to `{}`".format(flink_sql_path))
         cmd = '{}/run-flink-client-sql.sh'.format(SCRIPT_DIR)
         out, err, ret = run_cmd(cmd, False, env={
-            HUDI_WS: env_vars[HUDI_WS], 'SQL_PATH': sql_file_rel_path})
+            HUDI_WS: self.env_vars[HUDI_WS], 'SQL_PATH': sql_file_rel_path})
         if ret:
             logger.error(
                 "failed to run flink sql by flink client, error:\n{}".format(err))
@@ -711,11 +700,38 @@ class Runner:
             logger.info(
                 "success to run flink sql by flink client, sql file path: `{}`, job_id: `{}`".format(flink_sql_path, job_id))
             logger.info(
-                "please open flink jobmanager web site http://{}:{} for details".format(host, env_vars[flink_jobmanager_port_name]))
+                "please open flink jobmanager web site http://{}:{} for details".format(host, self.env_vars[flink_jobmanager_port_name]))
         else:
             logger.error(
                 "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_path, out))
             exit(-1)
+
+        return job_id, hdfs_addr
+
+    def sink_task(self):
+        assert self.args.sink_task_desc
+        assert self.args.sink_task_flink_schema_path
+
+        _p = self.args.sink_task_desc.split('.')
+        if len(_p) != 4:
+            logger.error(
+                "invalid sink format, need `etl_uid.table_id.db_name.table_name`")
+        etl_uid, table_id, db, table_name = self.args.sink_task_desc.split('.')
+        table_id = int(table_id)
+
+        assert os.path.exists(self.args.sink_task_flink_schema_path)
+
+        self.setup_env_libs()
+
+        self.sink_task_check_tidb_schema(db, table_name)
+
+        host = get_host_name()
+
+        kafka_topic, changefeed_id = self.create_ticdc_sink_job_to_kafka(
+            host, etl_uid, table_id, db, table_name)
+
+        job_id, hdfs_addr = self.create_flink_job(
+            host, etl_uid, table_id, db, table_name, kafka_topic)
 
         self.save_etl(
             etl_uid,
