@@ -292,7 +292,7 @@ class Runner:
         if ret:
             logger.error(
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
-            exit(-1)
+            return
         logger.info('\n{}'.format(out))
 
     def update_env_vars(self, new_data):
@@ -594,7 +594,7 @@ class Runner:
         if ret:
             logger.error(
                 "failed to cancel job {} in flink.\nout:\n{}\nerror:\n{}\n".format(self.args.flink_job_id, out, err, ))
-            exit(-1)
+            return
         logger.info("\n{}\n".format(out))
 
     def list_flink_jobs(self):
@@ -617,7 +617,7 @@ class Runner:
         if ret:
             logger.error(
                 "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_url, out, err))
-            exit(-1)
+            return
         logger.info("\n{}\n".format(out))
 
     def sink_task(self):
