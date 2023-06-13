@@ -244,10 +244,11 @@ class Runner:
                     for a in x:
                         self.args.hdfs_url = a
                         self.rm_hdfs_dir()
-
+            self.rm_etl(self.args.etl_job_id)
         else:
             logger.warning("etl job `{}` NOT found".format(
                 self.args.etl_job_id))
+            exit(-1)
 
     def list_etl_jobs(self):
         etl_jobs = self.env_vars.get(etl_jobs_name, {})
@@ -592,7 +593,7 @@ class Runner:
             cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
         if ret:
             logger.error(
-                "failed to cancel job {} in flink, error:\n{}\n".format(err))
+                "failed to cancel job {} in flink.\nout:\n{}\nerror:\n{}\n".format(self.args.flink_job_id, out, err, ))
             exit(-1)
         logger.info("\n{}\n".format(out))
 
@@ -731,6 +732,13 @@ class Runner:
         data = self.env_vars
         etl_jobs = data.setdefault(etl_jobs_name, {})
         etl_jobs[etl_uid] = v
+        self.env_vars = data
+
+    def rm_etl(self, etl_uid):
+        logger.info("remove etl job `{}`".format(etl_uid))
+        data = self.env_vars
+        etl_jobs = data.setdefault(etl_jobs_name, {})
+        del etl_jobs[etl_uid]
         self.env_vars = data
 
     def run(self):
