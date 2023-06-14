@@ -24,6 +24,7 @@ TIDB_PORT_NAME_SET = {"pd_port", "tikv_status_port",
 tidb_compose_name = 'tidb-compose'
 hufi_flink_compose = 'hufi-flink-compose'
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
+tmp_env_file_path = "{}/.tmp._env.json".format(SCRIPT_DIR)
 HUDI_WS = 'HUDI_WS'
 tidb_running_name = 'tidb_running'
 hudi_flink_running_name = 'hudi_flink_running'
@@ -48,27 +49,21 @@ def get_host_name():
 
 class Runner:
     def __init__(self):
-        if not os.path.exists(env_file_path):
-            try:
-                with open(env_file_path, "x") as f:
-                    fcntl.flock(f, fcntl.LOCK_EX)
-            except FileExistsError:
-                pass
-        self.data_file_handler = open(env_file_path, "r+")
-        fcntl.flock(self.data_file_handler, fcntl.LOCK_EX)
-
+        lock_file = '{}/lock'.format(SCRIPT_DIR)
+        assert os.path.exists(lock_file)
+        self.unique_lock = open(lock_file, "r")
+        fcntl.flock(self.unique_lock, fcntl.LOCK_EX)
         self._env_vars = self.load_env_data()
 
     def save_env_data(self, new_data):
-        self.data_file_handler.seek(0)
-        self.data_file_handler.truncate(0)
-        json.dump(new_data, self.data_file_handler)
+        json.dump(new_data, open(tmp_env_file_path, 'w'))
+        os.replace(tmp_env_file_path, env_file_path)
         logger.info("save env vars `{}` to `{}`".format(
             new_data, env_file_path))
 
     def load_env_data(self):
-        self.data_file_handler.seek(0)
-        s = self.data_file_handler.read()
+        data_file_handler = open(env_file_path, "r")
+        s = data_file_handler.read()
         if not s:
             data = {}
         else:
