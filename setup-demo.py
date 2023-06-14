@@ -183,6 +183,15 @@ class Runner:
             "--changefeed_start_ts", help="Specifies the starting TSO of the changefeed. From this TSO, the TiCDC cluster starts pulling data. The default value is the current time",
         )
         parser.add_argument(
+            "--start_ts", help="tso from PD for tidb dumpling",
+        )
+        parser.add_argument(
+            "--db", help="database name for tidb dumpling",
+        )
+        parser.add_argument(
+            "--table", help="table name for tidb dumpling",
+        )
+        parser.add_argument(
             "--flink_job_id", help="flink job id",
         )
         parser.add_argument(
@@ -196,7 +205,8 @@ class Runner:
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
                 'down', 'clean', 'list_ticdc_jobs', 'rm_ticdc_job', 'parse_tso', 'list_flink_jobs',
-                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job',), required=True)
+                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job', 'dump_tidb_table',
+            ), required=True)
         self.args = parser.parse_args()
         self.funcs_map = {
             'deploy_hudi_flink': self.deploy_hudi_flink,
@@ -218,6 +228,7 @@ class Runner:
             'rm_hdfs_dir': self.rm_hdfs_dir,
             'list_etl_jobs': self.list_etl_jobs,
             'rm_etl_job': self.rm_etl_job,
+            'dump_tidb_table': self.dump_tidb_table,
         }
 
     def rm_etl_job(self):
@@ -652,32 +663,36 @@ class Runner:
         if self.args.changefeed_start_ts:
             cmd = "{} --start-ts={}".format(cmd,
                                             int(self.args.changefeed_start_ts))
-        _, err, ret = run_cmd(cmd, True)
+        out, err, ret = run_cmd(cmd, False)
         if ret:
             logger.error(
                 "failed to create table sink task by ticdc client, error:\n{}".format(err))
             exit(-1)
 
-        return topic, changefeed_id
+        stdout = out.split('\n')
+        assert stdout[1] == 'ID: {}'.format(changefeed_id)
+        prefix = 'Info: '
+        assert stdout[2].startswith(prefix)
+        ticdc_data = json.loads(stdout[2][len(prefix):])
+        logger.info(
+            "create table sink job by ticdc client:\n{}\n".format(ticdc_data))
 
-    def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic):
+        return topic, changefeed_id, ticdc_data
+
+    def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic, csv_output_path, hdfs_addr):
         content = load_file(self.args.sink_task_flink_schema_path)
         template = Template(content)
-        var_map = {"kafka_address": "kafkabroker:9092",
-                   "kafka_topic": topic, "hdfs_address": "namenode:8020"}
+        var_map = {
+            "kafka_address": "kafkabroker:9092",
+            "kafka_topic": topic,
+            "hdfs_address": hdfs_addr,
+            "csv_file_path": csv_output_path,
+        }
         logger.debug("set basic config: {}".format(var_map))
         sql_file_rel_path = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
             etl_uid, table_id, db, table_name)
         flink_sql_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
         content = template.substitute(var_map)
-
-        bg = content.find('hdfs://')
-        assert bg != -1
-        end = content.find("'", bg)
-        end = end if end != -1 else content.find('"', bg)
-        assert end != -1
-        assert content.find('hdfs://', end) == -1
-        hdfs_addr = content[bg:end]
 
         with open(flink_sql_path, 'w') as f:
             f.write(content)
@@ -695,6 +710,8 @@ class Runner:
             line = line.strip()
             if line.startswith(job_id_prefix):
                 job_id = line[len(job_id_prefix):]
+            if line.find('[ERROR] ') != -1:
+                job_id = None
                 break
         if job_id:
             logger.info(
@@ -707,6 +724,39 @@ class Runner:
             exit(-1)
 
         return job_id, hdfs_addr
+
+    def dump_tidb_table(self):
+        assert self.args.db
+        assert self.args.table
+        if self.args.start_ts is None:
+            self.args.start_ts = 0
+
+        self._dump_tidb_table(self.args.start_ts,
+                              self.args.db, self.args.table)
+
+    def _dump_tidb_table(self, start_ts, db, table_name):
+        cmd = '/dumpling -u root -P {} -h {} -o /data --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
+            self.env_vars[tidb_port_name], get_host_name(), start_ts, db, table_name, db, table_name)
+        run_dumpling = '{}/run-dumpling.sh'.format(SCRIPT_DIR)
+        cmd = '{} \' {} \' '.format(run_dumpling, cmd, )
+        out, err, ret = run_cmd(cmd, False)
+        if ret:
+            logger.error("failed to dump table {}.{}, error:\n{}\nstdout:\n{}\n".format(
+                db, table_name, err, out))
+            exit(-1)
+
+        csv_output_path = '.tmp.demo/tidb/data/dumpling/{}.{}.csv'.format(
+            db, table_name)
+        logger.info("success to dump table {}.{} to `{}`".format(
+            db, table_name, csv_output_path, ))
+        real_path = '{}/{}'.format(SCRIPT_DIR, csv_output_path)
+        cmd = 'sed -i "1d" {}'.format(real_path)
+        _, err, ret = run_cmd(cmd)
+        if ret:
+            logger.error(
+                "failed to remove first row of {}, error:\n{}\n".format(real_path, err))
+            exit(-1)
+        return csv_output_path
 
     def sink_task(self):
         assert self.args.sink_task_desc
@@ -727,11 +777,16 @@ class Runner:
 
         host = get_host_name()
 
-        kafka_topic, changefeed_id = self.create_ticdc_sink_job_to_kafka(
+        kafka_topic, changefeed_id, ticdc_data = self.create_ticdc_sink_job_to_kafka(
             host, etl_uid, table_id, db, table_name)
 
+        start_ts = ticdc_data['start_ts']
+
+        csv_path = self._dump_tidb_table(start_ts, db, table_name)
+        csv_output_path = gen_csv_output_path(csv_path)
+
         job_id, hdfs_addr = self.create_flink_job(
-            host, etl_uid, table_id, db, table_name, kafka_topic)
+            host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, gen_hdfs_addr(changefeed_id))
 
         self.save_etl(
             etl_uid,
@@ -802,6 +857,14 @@ rules = ['{}.{}']""".format(db, table)
     logger.info(
         "gen ticdc config file to path `{}`, content:\n{}\n".format(file_path, buf))
     return file_path
+
+
+def gen_hdfs_addr(uri):
+    return "hdfs://namenode:8020/pingcap/demo/{}".format(uri)
+
+
+def gen_csv_output_path(csv_output_path):
+    return '/pingcap/demo/{}'.format(csv_output_path)
 
 
 def main():

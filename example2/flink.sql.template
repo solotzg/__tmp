@@ -11,7 +11,7 @@ CREATE TABLE demo_hudi.t2(
 PARTITIONED BY (`partition`)
 WITH (
   'connector' = 'hudi',
-  'path' = 'hdfs://${hdfs_address}/pingcap/demo/hudi_t2',
+  'path' = '${hdfs_address}',
   'table.type' = 'MERGE_ON_READ',
   'read.streaming.enabled' = 'true',
   'read.streaming.check-interval' = '1'

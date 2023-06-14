@@ -74,3 +74,9 @@ services:
     restart: on-failure
     ports:
       - "${ticdc_port}:8333"
+
+  dumpling0:
+    image: hub.pingcap.net/qa/dumpling:${TIDB_BRANCH}
+    volumes:
+      - ${pingcap_demo_path}/.tmp.demo/tidb/data/dumpling:/data
+      - ${pingcap_demo_path}/.tmp.demo/tidb/log/dumpling:/log

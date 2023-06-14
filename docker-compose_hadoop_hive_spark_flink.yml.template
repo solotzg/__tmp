@@ -197,24 +197,25 @@ services:
     image: flink:1.13
     volumes:
       - ${env_libs}:/pingcap/env_libs
-      - ${pingcap_demo_path}/flink-jobmanager.sh:/opt/flink/bin/flink-jobmanager.sh
+      - ${pingcap_demo_path}:/pingcap/demo
     ports:
       - "$flink_jobmanager_port:8081"
-    command: /opt/flink/bin/flink-jobmanager.sh
+    command: /pingcap/demo/flink-jobmanager.sh
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
         jobmanager.memory.process.size: 6048m
+    restart: on-failure
 
   taskmanager:
     image: flink:1.13
     volumes:
       - ${env_libs}:/pingcap/env_libs
-      - ${pingcap_demo_path}/flink-taskmanager.sh:/opt/flink/bin/flink-taskmanager.sh
+      - ${pingcap_demo_path}:/pingcap/demo
     depends_on:
       - jobmanager
-    command: /opt/flink/bin/flink-taskmanager.sh
+    command: /pingcap/demo/flink-taskmanager.sh
     scale: 1
     environment:
       - |
@@ -222,6 +223,7 @@ services:
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 20
         taskmanager.memory.process.size: 6048m
+    restart: on-failure
 
   sql-client:
     image: flink:1.13

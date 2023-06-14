@@ -8,7 +8,7 @@ CREATE TABLE demo_hudi.t1(
   b INT
 ) WITH (
   'connector' = 'hudi',
-  'path' = 'hdfs://${hdfs_address}/pingcap/demo/hudi_t1',
+  'path' = '${hdfs_address}',
   'table.type' = 'MERGE_ON_READ',
   'read.streaming.enabled' = 'true',
   'read.streaming.check-interval' = '1'
