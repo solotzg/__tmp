@@ -206,6 +206,9 @@ class Runner:
             '--kafka_addr', help="external kafka server address: ip/host:port"
         )
         parser.add_argument(
+            '--hdfs_addr', help="external hdfs server address: ip/host:port"
+        )
+        parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
@@ -713,7 +716,7 @@ class Runner:
 
         return topic, changefeed_id, ticdc_data
 
-    def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic, csv_output_path, hdfs_addr):
+    def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic, csv_output_path, hdfs_url):
         content = load_file(self.args.sink_task_flink_schema_path)
         kafka_addr = '{}:{}'.format(
             host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
@@ -721,7 +724,7 @@ class Runner:
         var_map = {
             "kafka_address": kafka_addr,
             "kafka_topic": topic,
-            "hdfs_address": hdfs_addr,
+            "hdfs_address": hdfs_url,
             "csv_file_path": csv_output_path,
         }
         logger.debug("set basic config: {}".format(var_map))
@@ -760,7 +763,7 @@ class Runner:
                 "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_path, out))
             exit(-1)
 
-        return job_id, hdfs_addr
+        return job_id
 
     def dump_tidb_table(self):
         assert self.args.db
@@ -795,6 +798,10 @@ class Runner:
             exit(-1)
         return csv_output_path
 
+    def gen_hdfs_url(self, uri):
+        hdfs_addr = 'namenode:8020' if self.args.hdfs_addr is None else self.args.hdfs_addr
+        return "hdfs://{}/pingcap/demo/{}".format(hdfs_addr, uri)
+
     def sink_task(self):
         assert self.args.sink_task_desc
         assert self.args.sink_task_flink_schema_path
@@ -822,15 +829,16 @@ class Runner:
         csv_path = self._dump_tidb_table(start_ts, db, table_name)
         csv_output_path = gen_csv_output_path(csv_path)
 
-        job_id, hdfs_addr = self.create_flink_job(
-            host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, gen_hdfs_addr(changefeed_id))
+        hdfs_url = self.gen_hdfs_url(changefeed_id)
+        job_id = self.create_flink_job(
+            host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, hdfs_url)
 
         self.save_etl(
             etl_uid,
             {
                 table_id:
                 {
-                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: [job_id,], hdfs_name: [hdfs_addr,],
+                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: [job_id,], hdfs_name: [hdfs_url,],
                 }
             }
         )
@@ -894,10 +902,6 @@ rules = ['{}.{}']""".format(db, table)
     logger.info(
         "gen ticdc config file to path `{}`, content:\n{}\n".format(file_path, buf))
     return file_path
-
-
-def gen_hdfs_addr(uri):
-    return "hdfs://namenode:8020/pingcap/demo/{}".format(uri)
 
 
 def gen_csv_output_path(csv_output_path):
