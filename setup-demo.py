@@ -623,7 +623,7 @@ class Runner:
         cmd = '{}/run-flink-bash.sh {}'.format(
             SCRIPT_DIR, '/opt/flink/bin/flink cancel {}'.format(self.args.flink_job_id))
         out, err, ret = run_cmd(
-            cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
+            cmd, False, env={})
         if ret:
             logger.error(
                 "failed to cancel job {} in flink.\nout:\n{}\nerror:\n{}\n".format(self.args.flink_job_id, out, err, ))
@@ -634,7 +634,7 @@ class Runner:
         cmd = '{}/run-flink-bash.sh {}'.format(
             SCRIPT_DIR, '/opt/flink/bin/flink list')
         out, err, ret = run_cmd(
-            cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
+            cmd, False, env={})
         if ret:
             logger.error(
                 "failed to list all jobs in flink, error:\n{}\n".format(err))
@@ -646,7 +646,7 @@ class Runner:
         cmd = '{}/run-flink-bash.sh {}'.format(
             SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'.format(self.args.hdfs_url))
         out, err, ret = run_cmd(
-            cmd, False, env={HUDI_WS: self.env_vars[HUDI_WS], })
+            cmd, False, env={})
         if ret:
             logger.error(
                 "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_url, out, err))
@@ -735,7 +735,8 @@ class Runner:
         logger.info("save flink sink sql to `{}`".format(flink_sql_path))
         cmd = '{}/run-flink-client-sql.sh'.format(SCRIPT_DIR)
         out, err, ret = run_cmd(cmd, False, env={
-            HUDI_WS: self.env_vars[HUDI_WS], 'SQL_PATH': sql_file_rel_path})
+            'SQL_PATH': sql_file_rel_path
+        })
         if ret:
             logger.error(
                 "failed to run flink sql by flink client, error:\n{}".format(err))
