@@ -39,6 +39,7 @@ etl_jobs_name = "etl_jobs"
 ticdc_changefeed_name = 'ticdc_changefeed'
 flink_job_name = 'flink_job'
 hdfs_name = 'hdfs'
+CDC_BIN_PATH = 'CDC_BIN_PATH'
 
 
 def get_host_name():
@@ -196,6 +197,15 @@ class Runner:
             '--hdfs_url', help="hdfs url like `hdfs://namenode:8020/a/b/c`"
         )
         parser.add_argument(
+            '--cdc_bin_path', help="ticdc binary local path"
+        )
+        parser.add_argument(
+            '--ticdc_addr', help="external ticdc server address ip/host:port"
+        )
+        parser.add_argument(
+            '--kafka_addr', help="external kafka server address: ip/host:port"
+        )
+        parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
@@ -275,10 +285,19 @@ class Runner:
         host = get_host_name()
         cdc_server = "http://{}:{}".format(host,
                                            self.env_vars[ticdc_port_name])
-        run_cdc_cli = '{}/run-cdc-cli.sh'.format(SCRIPT_DIR)
-        cmd = '{} \' /cdc cli changefeed list --server={} \''.format(
-            run_cdc_cli, cdc_server, )
-        out, err, ret = run_cmd(cmd,)
+        ticdc_args = 'cli changefeed list --server={}'.format(
+            cdc_server
+        )
+        cmd_env = {}
+        if self.args.cdc_bin_path:
+            assert os.path.exists(self.args.cdc_bin_path)
+            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
+        else:
+            ticdc_args = "'{}'".format(ticdc_args)
+
+        cmd = '{}/run-cdc-cli.sh {}'.format(
+            SCRIPT_DIR, ticdc_args, )
+        out, err, ret = run_cmd(cmd, env=cmd_env)
         if ret:
             logger.error(
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
@@ -291,10 +310,18 @@ class Runner:
         host = get_host_name()
         cdc_server = "http://{}:{}".format(host,
                                            self.env_vars[ticdc_port_name])
-        run_cdc_cli = '{}/run-cdc-cli.sh'.format(SCRIPT_DIR)
-        cmd = '{} \' /cdc cli changefeed remove --server={} --changefeed-id={} \''.format(
-            run_cdc_cli, cdc_server, self.args.cdc_changefeed_id, )
-        out, err, ret = run_cmd(cmd,)
+        ticdc_args = 'cli changefeed remove --server={} --changefeed-id={}'.format(
+            cdc_server, self.args.cdc_changefeed_id
+        )
+        cmd_env = {}
+        if self.args.cdc_bin_path:
+            assert os.path.exists(self.args.cdc_bin_path)
+            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
+        else:
+            ticdc_args = "'{}'".format(ticdc_args)
+        cmd = '{}/run-cdc-cli.sh {}'.format(
+            SCRIPT_DIR, ticdc_args)
+        out, err, ret = run_cmd(cmd, env=cmd_env)
         if ret:
             logger.error(
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
@@ -637,9 +664,11 @@ class Runner:
                 db, table_name, out))
 
     def create_ticdc_sink_job_to_kafka(self, host, etl_uid, table_id, db, table_name):
-        cdc_server = "http://{}:{}".format(host,
-                                           self.env_vars[ticdc_port_name])
-        kafka_addr = "{}:{}".format(host, self.env_vars[kafka_port_name])
+        ticdc_addr = '{}:{}'.format(
+            host, self.env_vars[ticdc_port_name]) if self.args.ticdc_addr is None else self.args.ticdc_addr
+        ticdc_server_url = "http://{}".format(ticdc_addr)
+        kafka_addr = '{}:{}'.format(
+            host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
         protocol = "canal-json"
         kafka_version = "2.4.0"
         partition_num = 1
@@ -649,16 +678,26 @@ class Runner:
         changefeed_id = topic
         cdc_config_file = gen_ticdc_config_file(
             etl_uid, table_id, db, table_name)
-        cdc_config_file_name = os.path.basename(cdc_config_file)
+        cdc_config_file_name = '/pingcap/demo/{}'.format(os.path.basename(
+            cdc_config_file)) if not self.args.cdc_bin_path else cdc_config_file
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
-        run_cdc_cli = '{}/run-cdc-cli.sh'.format(SCRIPT_DIR)
-        cmd = '{} \' /cdc cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config=/pingcap/demo/{} \''.format(
-            run_cdc_cli, cdc_server, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name)
+        ticdc_args = 'cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
+            ticdc_server_url, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name
+        )
         if self.args.changefeed_start_ts:
-            cmd = "{} --start-ts={}".format(cmd,
-                                            int(self.args.changefeed_start_ts))
-        out, err, ret = run_cmd(cmd, False)
+            ticdc_args = "{} --start-ts={}".format(ticdc_args,
+                                                   int(self.args.changefeed_start_ts))
+        cmd_env = {}
+        if self.args.cdc_bin_path:
+            assert os.path.exists(self.args.cdc_bin_path)
+            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
+        else:
+            ticdc_args = "'{}'".format(ticdc_args)
+
+        cmd = '{}/run-cdc-cli.sh {}'.format(
+            SCRIPT_DIR, ticdc_args)
+        out, err, ret = run_cmd(cmd, True, cmd_env)
         if ret:
             logger.error(
                 "failed to create table sink task by ticdc client, error:\n{}".format(err))
@@ -676,9 +715,11 @@ class Runner:
 
     def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic, csv_output_path, hdfs_addr):
         content = load_file(self.args.sink_task_flink_schema_path)
+        kafka_addr = '{}:{}'.format(
+            host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
         template = Template(content)
         var_map = {
-            "kafka_address": "kafkabroker:9092",
+            "kafka_address": kafka_addr,
             "kafka_topic": topic,
             "hdfs_address": hdfs_addr,
             "csv_file_path": csv_output_path,
