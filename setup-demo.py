@@ -40,6 +40,7 @@ ticdc_changefeed_name = 'ticdc_changefeed'
 flink_job_name = 'flink_job'
 hdfs_name = 'hdfs'
 CDC_BIN_PATH = 'CDC_BIN_PATH'
+HUDI_FLINK_YML = '.tmp.docker-compose_hadoop_hive_spark_flink.yml'
 
 
 def get_host_name():
@@ -224,11 +225,15 @@ class Runner:
             '--flink_sql_client_path', help="path of flink sql client shell script"
         )
         parser.add_argument(
+            '--kafka_topic', help="kafka topic to be removed"
+        )
+        parser.add_argument(
             '--cmd', help='command enum', choices=(
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
                 'down', 'clean', 'list_ticdc_jobs', 'rm_ticdc_job', 'parse_tso', 'list_flink_jobs',
-                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job', 'dump_tidb_table', 'rm_flink_job'
+                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job', 'dump_tidb_table', 'rm_flink_job',
+                'list_kafka_topics', 'rm_kafka_topic'
             ), required=True)
         self.args = parser.parse_args()
         self.funcs_map = {
@@ -252,7 +257,27 @@ class Runner:
             'list_etl_jobs': self.list_etl_jobs,
             'rm_etl_job': self.rm_etl_job,
             'dump_tidb_table': self.dump_tidb_table,
+            'list_kafka_topics': self.list_kafka_topics,
+            'rm_kafka_topic': self.rm_kafka_topic,
         }
+
+    def _run_kafka_topic(self, args):
+        cmd = 'docker compose -f {}/{} exec -T kafka bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --zookeeper zookeeper:2181 {}" '.format(
+            SCRIPT_DIR, HUDI_FLINK_YML, args)
+        out, err, retcode = run_cmd(cmd)
+        if retcode:
+            logger.error(
+                "failed to run kafka topics cmd, error:\n{}\n".format(err))
+            exit(-1)
+        logger.info('\n{}\n'.format(out))
+
+    def rm_kafka_topic(self):
+        assert self.args.kafka_topic
+        self._run_kafka_topic(
+            '--delete --topic {}'.format(self.args.kafka_topic))
+
+    def list_kafka_topics(self):
+        self._run_kafka_topic('--list')
 
     def rm_etl_job(self):
         assert self.args.etl_job_id
@@ -268,6 +293,8 @@ class Runner:
                     for a in x:
                         self.args.cdc_changefeed_id = a
                         self.rm_ticdc_job()
+                        self.args.kafka_topic = a
+                        self.rm_kafka_topic()
                 x = table.get(flink_job_name)
                 if x is not None:
                     for a in x:
@@ -410,7 +437,7 @@ class Runner:
     def down_hudi_flink(self):
         logger.info("start to down hudi flink docker compose")
         cmd = '{}/down_hudi_flink.sh'.format(SCRIPT_DIR)
-        _, _, ret = run_cmd(cmd, True, env={HUDI_WS: self.hudi_repo_path})
+        _, _, ret = run_cmd(cmd, True,)
         if ret:
             logger.error("fail to stop hudi flink")
             exit(-1)
@@ -576,8 +603,7 @@ class Runner:
         logger.info(
             "start to gen flink-hudi cluster docker compose file: start_port={}, hudi_root={}, template_file=`{}`".format(
                 start_port, hudi_path, template_file))
-        config_file_path = '{}/{}'.format(SCRIPT_DIR,
-                                          '.tmp.docker-compose_hadoop_hive_spark_flink.yml')
+        config_file_path = '{}/{}'.format(SCRIPT_DIR, HUDI_FLINK_YML)
         if os.path.exists(config_file_path):
             logger.warning(
                 'flink docker compose file `{}` exists, if need to generate new config, please delete it'.format(config_file_path))
@@ -632,7 +658,7 @@ class Runner:
                 "hudi flink is NOT running, start docker compose cluster")
         cmd = '{}/setup_hudi_flink.sh'.format(SCRIPT_DIR)
         _, stderr, retcode = run_cmd(
-            cmd, show_stdout=True, env={HUDI_WS: hudi_path})
+            cmd, show_stdout=True,)
         if retcode:
             logger.error(
                 "failed to deploy hudi flink cluster, error:\n{}".format(stderr))
