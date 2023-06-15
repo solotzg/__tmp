@@ -25,17 +25,5 @@ INSERT INTO demo_hudi.t3 (select * from demo_flink.t3);
 RESET table.dml-sync;
 
 drop table demo_flink.t3;
-create table demo_flink.t3_inc(a int PRIMARY KEY, b int) with('connector'='kafka', 'topic'='${kafka_topic}', 'properties.bootstrap.servers'='${kafka_address}', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='latest-offset');
-
-drop table demo_hudi.t3;
-CREATE TABLE demo_hudi.t3_inc(
-  a INT PRIMARY KEY NOT ENFORCED,
-  b INT
-) WITH (
-  'connector' = 'hudi',
-  'path' = '${hdfs_address}',
-  'table.type' = 'MERGE_ON_READ',
-  'read.streaming.enabled' = 'true',
-  'read.streaming.check-interval' = '1'
-);
-INSERT INTO demo_hudi.t3_inc (select * from demo_flink.t3_inc);
+create table demo_flink.t3_inc(a int PRIMARY KEY, b int) with('connector'='kafka', 'topic'='${kafka_topic}', 'properties.bootstrap.servers'='${kafka_address}', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='earliest-offset');
+INSERT INTO demo_hudi.t3 (select * from demo_flink.t3_inc);
