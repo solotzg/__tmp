@@ -200,6 +200,12 @@ class Runner:
             '--cdc_bin_path', help="ticdc binary local path"
         )
         parser.add_argument(
+            '--flink_bin_path', help="flink binary local path"
+        )
+        parser.add_argument(
+            '--hdfs_bin_path', help="hdfs binary local path"
+        )
+        parser.add_argument(
             '--ticdc_addr', help="external ticdc server address ip/host:port"
         )
         parser.add_argument(
@@ -207,6 +213,15 @@ class Runner:
         )
         parser.add_argument(
             '--hdfs_addr', help="external hdfs server address: ip/host:port"
+        )
+        parser.add_argument(
+            '--dumpling_bin_path', help="dumpling binary local path"
+        )
+        parser.add_argument(
+            '--dumpling_tar_path', help="dir path to save dumped tidb table data"
+        )
+        parser.add_argument(
+            '--flink_sql_client_path', help="path of flink sql client shell script"
         )
         parser.add_argument(
             '--cmd', help='command enum', choices=(
@@ -621,12 +636,21 @@ class Runner:
         self.deploy_hudi_flink()
         self.deploy_tidb()
 
+    def gen_flink_exec(self, args):
+        if self.args.flink_bin_path:
+            assert os.path.exists(self.args.flink_bin_path)
+            cmd = '{} {}'.format(
+                self.args.flink_bin_path, args)
+        else:
+            cmd = '{}/run-flink-bash.sh /opt/flink/bin/flink {}'.format(
+                SCRIPT_DIR, args)
+        return cmd
+
     def rm_flink_job(self):
         assert self.args.flink_job_id
-        cmd = '{}/run-flink-bash.sh {}'.format(
-            SCRIPT_DIR, '/opt/flink/bin/flink cancel {}'.format(self.args.flink_job_id))
+        cmd = self.gen_flink_exec('cancel {}'.format(self.args.flink_job_id))
         out, err, ret = run_cmd(
-            cmd, False, env={})
+            cmd, False)
         if ret:
             logger.error(
                 "failed to cancel job {} in flink.\nout:\n{}\nerror:\n{}\n".format(self.args.flink_job_id, out, err, ))
@@ -634,10 +658,9 @@ class Runner:
         logger.info("\n{}\n".format(out))
 
     def list_flink_jobs(self):
-        cmd = '{}/run-flink-bash.sh {}'.format(
-            SCRIPT_DIR, '/opt/flink/bin/flink list')
+        cmd = self.gen_flink_exec('list')
         out, err, ret = run_cmd(
-            cmd, False, env={})
+            cmd, False)
         if ret:
             logger.error(
                 "failed to list all jobs in flink, error:\n{}\n".format(err))
@@ -646,8 +669,13 @@ class Runner:
 
     def rm_hdfs_dir(self):
         assert self.args.hdfs_url
-        cmd = '{}/run-flink-bash.sh {}'.format(
-            SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'.format(self.args.hdfs_url))
+        if self.args.hdfs_bin_path:
+            assert os.path.exists(self.args.hdfs_bin_path)
+            cmd = '{} dfs -rm -r {}'.format(self.args.hdfs_bin_path,
+                                            self.args.hdfs_url)
+        else:
+            cmd = '{}/run-flink-bash.sh {}'.format(
+                SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'.format(self.args.hdfs_url))
         out, err, ret = run_cmd(
             cmd, False, env={})
         if ret:
@@ -728,18 +756,26 @@ class Runner:
             "csv_file_path": csv_output_path,
         }
         logger.debug("set basic config: {}".format(var_map))
-        sql_file_rel_path = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
+        flink_sql_file = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
             etl_uid, table_id, db, table_name)
-        flink_sql_path = '{}/{}'.format(SCRIPT_DIR, sql_file_rel_path)
+        flink_sql_real_path = '{}/{}'.format(SCRIPT_DIR, flink_sql_file)
+        flink_sql_path_in_docker = '/pingcap/demo/{}'.format(flink_sql_file)
         content = template.substitute(var_map)
 
-        with open(flink_sql_path, 'w') as f:
+        with open(flink_sql_real_path, 'w') as f:
             f.write(content)
-        logger.info("save flink sink sql to `{}`".format(flink_sql_path))
-        cmd = '{}/run-flink-client-sql.sh'.format(SCRIPT_DIR)
-        out, err, ret = run_cmd(cmd, False, env={
-            'SQL_PATH': sql_file_rel_path
-        })
+        logger.info("save flink sink sql to `{}`".format(flink_sql_real_path))
+
+        if self.args.flink_sql_client_path:
+            assert os.path.exists(self.args.flink_sql_client_path)
+            cmd = '{} embedded -f {}'.format(
+                self.args.flink_sql_client_path, flink_sql_real_path)
+        else:
+            cmd = '{}/run-flink-bash.sh /pingcap/demo/flink-sql-client.sh embedded -f {}'.format(
+                SCRIPT_DIR,
+                flink_sql_path_in_docker)
+
+        out, err, ret = run_cmd(cmd, False)
         if ret:
             logger.error(
                 "failed to run flink sql by flink client, error:\n{}".format(err))
@@ -755,12 +791,12 @@ class Runner:
                 break
         if job_id:
             logger.info(
-                "success to run flink sql by flink client, sql file path: `{}`, job_id: `{}`".format(flink_sql_path, job_id))
+                "success to run flink sql by flink client, sql file path: `{}`, job_id: `{}`".format(flink_sql_real_path, job_id))
             logger.info(
-                "please open flink jobmanager web site http://{}:{} for details".format(host, self.env_vars[flink_jobmanager_port_name]))
+                "please open flink jobmanager web site `http://{}:{}` for details".format(host, self.env_vars[flink_jobmanager_port_name]))
         else:
             logger.error(
-                "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_path, out))
+                "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_real_path, out))
             exit(-1)
 
         return job_id
@@ -775,26 +811,45 @@ class Runner:
                               self.args.db, self.args.table)
 
     def _dump_tidb_table(self, start_ts, db, table_name):
-        cmd = '/dumpling -u root -P {} -h {} -o /data --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
-            self.env_vars[tidb_port_name], get_host_name(), start_ts, db, table_name, db, table_name)
-        run_dumpling = '{}/run-dumpling.sh'.format(SCRIPT_DIR)
-        cmd = '{} \' {} \' '.format(run_dumpling, cmd, )
+        dumpl_to_path = '/data'
+        dumpl_to_path_real = '{}/.tmp.demo/tidb/data/dumpling'.format(
+            SCRIPT_DIR)
+
+        if self.args.dumpling_tar_path:
+            assert self.args.dumpling_bin_path
+            assert os.path.exists(self.args.dumpling_bin_path)
+            self.args.dumpling_bin_path = os.path.realpath(
+                self.args.dumpling_bin_path)
+            dumpl_to_path = self.args.dumpling_tar_path
+            dumpl_to_path_real = dumpl_to_path
+
+        args = '-u root -P {} -h {} -o {} --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
+            self.env_vars[tidb_port_name], get_host_name(), dumpl_to_path, start_ts, db, table_name, db, table_name)
+        cmd_env = {}
+        if self.args.dumpling_bin_path:
+            assert self.args.dumpling_tar_path
+            assert os.path.exists(self.args.dumpling_bin_path)
+            cmd_env['DUMPLING_BIN_PATH'] = self.args.dumpling_bin_path
+        else:
+            args = "'{}'".format(args)
+
+        cmd = "{}/run-dumpling.sh {} ".format(SCRIPT_DIR, args, )
         out, err, ret = run_cmd(cmd, False)
         if ret:
             logger.error("failed to dump table {}.{}, error:\n{}\nstdout:\n{}\n".format(
                 db, table_name, err, out))
             exit(-1)
 
-        csv_output_path = '.tmp.demo/tidb/data/dumpling/{}.{}.csv'.format(
+        csv_output_path = '{}/{}.{}.csv'.format(
+            dumpl_to_path_real,
             db, table_name)
         logger.info("success to dump table {}.{} to `{}`".format(
             db, table_name, csv_output_path, ))
-        real_path = '{}/{}'.format(SCRIPT_DIR, csv_output_path)
-        cmd = 'sed -i "1d" {}'.format(real_path)
+        cmd = 'sed -i "1d" {}'.format(csv_output_path)
         _, err, ret = run_cmd(cmd)
         if ret:
             logger.error(
-                "failed to remove first row of {}, error:\n{}\n".format(real_path, err))
+                "failed to remove first row of {}, error:\n{}\n".format(csv_output_path, err))
             exit(-1)
         return csv_output_path
 
@@ -827,7 +882,12 @@ class Runner:
         start_ts = ticdc_data['start_ts']
 
         csv_path = self._dump_tidb_table(start_ts, db, table_name)
-        csv_output_path = gen_csv_output_path(csv_path)
+        if self.args.dumpling_tar_path:
+            csv_output_path = csv_path
+        else:
+            assert csv_path.startswith(SCRIPT_DIR)
+            csv_output_path = '/pingcap/demo/{}'.format(
+                csv_path[len(SCRIPT_DIR):])
 
         hdfs_url = self.gen_hdfs_url(changefeed_id)
         job_id = self.create_flink_job(
@@ -902,10 +962,6 @@ rules = ['{}.{}']""".format(db, table)
     logger.info(
         "gen ticdc config file to path `{}`, content:\n{}\n".format(file_path, buf))
     return file_path
-
-
-def gen_csv_output_path(csv_output_path):
-    return '/pingcap/demo/{}'.format(csv_output_path)
 
 
 def main():
