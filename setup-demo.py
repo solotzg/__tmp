@@ -228,7 +228,7 @@ class Runner:
                 'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
                 'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
                 'down', 'clean', 'list_ticdc_jobs', 'rm_ticdc_job', 'parse_tso', 'list_flink_jobs',
-                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job', 'dump_tidb_table',
+                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job', 'dump_tidb_table', 'rm_flink_job'
             ), required=True)
         self.args = parser.parse_args()
         self.funcs_map = {
@@ -383,7 +383,8 @@ class Runner:
         for p in files:
             if p:
                 logger.info("remove `{}`".format(p))
-                os.remove(p)
+                if os.path.exists(p):
+                    os.remove(p)
 
     @property
     def tidb_running(self):
@@ -394,8 +395,14 @@ class Runner:
         self.update_env_vars({tidb_running_name: v})
 
     def down(self):
-        self.down_hudi_flink()
-        self.down_tidb()
+        try:
+            self.down_hudi_flink()
+        except:
+            pass
+        try:
+            self.down_tidb()
+        except:
+            pass
 
     def show_env_vars_info(self):
         print(self.env_vars)
@@ -768,10 +775,10 @@ class Runner:
 
         if self.args.flink_sql_client_path:
             assert os.path.exists(self.args.flink_sql_client_path)
-            cmd = '{} embedded -f {}'.format(
+            cmd = '{} -f {}'.format(
                 self.args.flink_sql_client_path, flink_sql_real_path)
         else:
-            cmd = '{}/run-flink-bash.sh /pingcap/demo/flink-sql-client.sh embedded -f {}'.format(
+            cmd = '{}/run-flink-bash.sh /pingcap/demo/flink-sql-client.sh -f {}'.format(
                 SCRIPT_DIR,
                 flink_sql_path_in_docker)
 
