@@ -34,3 +34,10 @@ def run_cmd(cmd, show_stdout=False, env=None):
     _stdout, stderr = proc.communicate()
     stdout = stdout if show_stdout else _stdout
     return stdout.decode('utf-8'), stderr.decode('utf-8'), proc.returncode
+
+
+def run_cmd_no_msg(cmd, env=None):
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=env)
+    stdout, stderr = proc.communicate()
+    return stdout.decode('utf-8'), stderr.decode('utf-8'), proc.returncode
