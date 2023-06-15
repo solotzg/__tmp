@@ -289,12 +289,12 @@ class Runner:
             for tid, table in job.items():
                 logger.info("start to clean data for table `{}`".format(tid))
                 x = table.get(ticdc_changefeed_name)
+                kafka_topic_to_remove = []
                 if x is not None:
                     for a in x:
                         self.args.cdc_changefeed_id = a
                         self.rm_ticdc_job()
-                        self.args.kafka_topic = a
-                        self.rm_kafka_topic()
+                        kafka_topic_to_remove.append(a)
                 x = table.get(flink_job_name)
                 if x is not None:
                     for a in x:
@@ -305,6 +305,9 @@ class Runner:
                     for a in x:
                         self.args.hdfs_url = a
                         self.rm_hdfs_dir()
+                for a in kafka_topic_to_remove:
+                    self.args.kafka_topic = a
+                    self.rm_kafka_topic()
             self.rm_etl(self.args.etl_job_id)
         else:
             logger.warning("etl job `{}` NOT found".format(
