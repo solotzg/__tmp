@@ -92,6 +92,7 @@ select count(*) from demo_hudi.t3;
 if __name__ == '__main__':
     try:
         main()
+        run_cmd(
+            '{}/setup-demo.py --cmd rm_etl_job --etl_job_id etl3'.format(SCRIPT_DIR))
     except Exception as e:
         logger.exception(e)
-    run_cmd('{}/setup-demo.py --cmd rm_etl_job --etl_job_id etl3'.format(SCRIPT_DIR))
