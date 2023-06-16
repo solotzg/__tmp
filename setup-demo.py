@@ -38,9 +38,10 @@ tidb_version_prefix = 'release-'
 etl_jobs_name = "etl_jobs"
 ticdc_changefeed_name = 'ticdc_changefeed'
 flink_job_name = 'flink_job'
-hdfs_name = 'hdfs'
+HDFS_NAME = 'hdfs'
 CDC_BIN_PATH = 'CDC_BIN_PATH'
 HUDI_FLINK_YML = '.tmp.docker-compose_hadoop_hive_spark_flink.yml'
+HUDI_COMPILED_TIME = 'hudi_compiled'
 
 
 def get_host_name():
@@ -80,7 +81,18 @@ class Runner:
             'list_kafka_topics': self.list_kafka_topics,
             'rm_kafka_topic': self.rm_kafka_topic,
             'destroy': self.destroy,
+            'list_cluster_env': self.list_cluster_env,
         }
+
+    def list_cluster_env(self):
+        files = [self.env_vars.get(hufi_flink_compose),
+                 self.env_vars.get(tidb_compose_name)]
+        for p in files:
+            if not p or not os.path.exists(p):
+                continue
+            out, err, _ = run_cmd('docker compose -f {} ps -a'.format(p))
+            logger.info("\n{}\n".format(out))
+            logger.error("\n{}\n".format(err))
 
     def destroy(self):
         self.clean()
@@ -151,6 +163,14 @@ class Runner:
         self.detect_change_and_update(HUDI_WS, self.args.hudi_repo)
         return self.args.hudi_repo
 
+    @property
+    def hudi_compiled_time(self):
+        return self.env_vars.get(HUDI_COMPILED_TIME)
+
+    @hudi_compiled_time.setter
+    def hudi_compiled_time(self, v):
+        self.detect_change_and_update(HUDI_COMPILED_TIME, v)
+
     def mvn_compile_hudi(self, java_home, hudi_path, need_clean,):
         _, stderr, retcode = run_cmd("export JAVA_HOME={} && cd {} && mvn {} package -Pintegration-tests -DskipTests -Drat.skip=true".format(
             java_home,
@@ -169,21 +189,18 @@ class Runner:
 
         need_clean = True
         java_home = self.install_jdk1_8()
-        hudi_compiled = 'hudi_compiled'
-        hudi_compiled_time = self.env_vars.get(hudi_compiled)
-        if hudi_compiled_time is not None:
+        if self.hudi_compiled_time is not None:
             logger.info('hudi was compiled at `{}`'.format(
-                hudi_compiled_time))
+                self.hudi_compiled_time))
             return
 
         self.mvn_compile_hudi(java_home, hudi_path, need_clean)
         # self.__mvn_compile_hudi()
 
-        hudi_compiled_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-        self.detect_change_and_update(hudi_compiled, hudi_compiled_time)
+        self.hudi_compiled_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         self.detect_change_and_update(HUDI_WS, hudi_path)
         logger.info('set hudi compiled time: {}'.format(
-            hudi_compiled_time))
+            self.hudi_compiled_time))
 
     def _init(self):
         parser = argparse.ArgumentParser(
@@ -301,7 +318,7 @@ class Runner:
                     for a in x:
                         self.args.flink_job_id = a
                         self.rm_flink_job()
-                x = table.get(hdfs_name)
+                x = table.get(HDFS_NAME)
                 if x is not None:
                     for a in x:
                         self.args.hdfs_url = a
@@ -649,6 +666,9 @@ class Runner:
         hudi_path = self.hudi_repo_path
         assert os.path.exists(hudi_path)
 
+        if not self.hudi_compiled_time:
+            logger.error('please compile hudi before deploying cluster')
+
         self.setup_env_libs()
 
         self.gen_flink_config_file_from_template(
@@ -935,7 +955,7 @@ class Runner:
             {
                 table_id:
                 {
-                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: [job_id,], hdfs_name: [hdfs_url,],
+                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: [job_id,], HDFS_NAME: [hdfs_url,],
                 }
             }
         )
