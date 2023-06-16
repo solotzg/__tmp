@@ -42,6 +42,7 @@ HDFS_NAME = 'hdfs'
 CDC_BIN_PATH = 'CDC_BIN_PATH'
 HUDI_FLINK_YML = '.tmp.docker-compose_hadoop_hive_spark_flink.yml'
 HUDI_COMPILED_TIME = 'hudi_compiled'
+COMPOSE_PROJECT_NAME = 'COMPOSE_PROJECT_NAME'
 
 
 def get_host_name():
@@ -56,7 +57,7 @@ class Runner:
         assert os.path.exists(lock_file)
         self.unique_lock = open(lock_file, "r")
         fcntl.flock(self.unique_lock, fcntl.LOCK_EX)
-        with open(env_file_path, 'a') as f:
+        with open(env_file_path, 'a') as _:
             pass
         self._env_vars = self.load_env_data()
         self.funcs_map = {
@@ -94,7 +95,8 @@ class Runner:
                 continue
             out, err, _ = run_cmd('docker compose -f {} ps -a'.format(p))
             logger.info("\n{}\n".format(out))
-            logger.error("\n{}\n".format(err))
+            if err:
+                logger.error("\n{}\n".format(err))
 
     def destroy(self):
         self.clean()
@@ -274,6 +276,9 @@ class Runner:
         )
         parser.add_argument(
             '--flink_sql_client_path', help="path of flink sql client shell script"
+        )
+        parser.add_argument(
+            '--compose_project_name', help="project name for docker compose env"
         )
         parser.add_argument(
             '--kafka_topic', help="kafka topic to be removed"
@@ -593,8 +598,7 @@ class Runner:
                                        'tidb-cluster.yml.template')
         logger.info(
             "start to gen tidb-ticdc cluster docker compose file: start_port={}, branch={}, template_file=`{}`".format(start_port, branch, template_file))
-        base_dir = '{}/tidb'.format(SCRIPT_DIR)
-        config_file_path = '{}/{}'.format(base_dir,
+        config_file_path = '{}/{}'.format(SCRIPT_DIR,
                                           '.tmp.tidb-cluster.yml')
         if os.path.exists(config_file_path):
             logger.warning(
@@ -614,9 +618,8 @@ class Runner:
             var_map[v] = port
         var_map[TIDB_BRANCH] = branch
         var_map['pingcap_demo_path'] = SCRIPT_DIR
+        var_map['TIDB_COMPOSE_PROJECT_NAME'] = self.compose_project_name + "_tidb"
         logger.debug("set basic config: {}".format(var_map))
-        if not os.path.exists(base_dir):
-            os.makedirs(base_dir)
         with open(config_file_path, 'w') as f:
             f.write(template.substitute(var_map))
         logger.info(
@@ -651,6 +654,7 @@ class Runner:
         host = get_host_name()
         var_map[demo_host] = host
         var_map[env_libs_name] = self.args.env_libs
+        var_map['LAKE_HOUSE_COMPOSE_PROJECT_NAME'] = self.compose_project_name + "_lakehouse"
         logger.debug("set basic config: {}".format(var_map))
         d = template.substitute(var_map)
         with open(config_file_path, 'w') as f:
@@ -667,6 +671,17 @@ class Runner:
     @hudi_flink_running.setter
     def hudi_flink_running(self, v):
         self.update_env_vars({hudi_flink_running_name: v})
+
+    @property
+    def compose_project_name(self):
+        if self.args.compose_project_name:
+            assert self.args.compose_project_name
+            self.detect_change_and_update(
+                COMPOSE_PROJECT_NAME, self.args.compose_project_name)
+        else:
+            self.args.compose_project_name = self.env_vars.get(
+                COMPOSE_PROJECT_NAME, 'pingcap')
+        return self.args.compose_project_name
 
     def deploy_hudi_flink(self):
         hudi_path = self.hudi_repo_path

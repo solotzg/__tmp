@@ -1,5 +1,5 @@
 version: "3.3"
-
+name: "${TIDB_COMPOSE_PROJECT_NAME}"
 services:
   pd0:
     image: hub.pingcap.net/qa/pd:${TIDB_BRANCH}
