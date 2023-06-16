@@ -70,7 +70,8 @@ services:
       - --log-file=/log/ticdc.log
       - --pd=http://pd0:2379
     depends_on:
-      - "tidb0"
+      - "pd0"
+      - "tikv0"
     restart: on-failure
     ports:
       - "${ticdc_port}:8333"
