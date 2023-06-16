@@ -56,6 +56,36 @@ class Runner:
         self.unique_lock = open(lock_file, "r")
         fcntl.flock(self.unique_lock, fcntl.LOCK_EX)
         self._env_vars = self.load_env_data()
+        self.funcs_map = {
+            'deploy_hudi_flink': self.deploy_hudi_flink,
+            'deploy_tidb': self.deploy_tidb,
+            'deploy_hudi_flink_tidb': self.deploy_hudi_flink_tidb,
+            'sink_task': self.sink_task,
+            'down_hudi_flink': self.down_hudi_flink,
+            'stop_tidb': self.stop_tidb,
+            'down_tidb': self.down_tidb,
+            'compile_hudi': self.compile_hudi,
+            'show_env_vars_info': self.show_env_vars_info,
+            'down': self.down,
+            'clean': self.clean,
+            'list_ticdc_jobs': self.list_ticdc_jobs,
+            'rm_ticdc_job': self.rm_ticdc_job,
+            'parse_tso': self.parse_tso,
+            'list_flink_jobs': self.list_flink_jobs,
+            'rm_flink_job': self.rm_flink_job,
+            'rm_hdfs_dir': self.rm_hdfs_dir,
+            'list_etl_jobs': self.list_etl_jobs,
+            'rm_etl_job': self.rm_etl_job,
+            'dump_tidb_table': self.dump_tidb_table,
+            'list_kafka_topics': self.list_kafka_topics,
+            'rm_kafka_topic': self.rm_kafka_topic,
+            'destroy': self.destroy,
+        }
+
+    def destroy(self):
+        self.clean()
+        run_cmd('find `pwd` -name ".tmp.*" | xargs rm -rf', True)
+        logger.warning("all data is destroyed")
 
     def save_env_data(self, new_data):
         json.dump(new_data, open(tmp_env_file_path, 'w'))
@@ -227,39 +257,10 @@ class Runner:
         parser.add_argument(
             '--kafka_topic', help="kafka topic to be removed"
         )
+        cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
-            '--cmd', help='command enum', choices=(
-                'deploy_hudi_flink', 'deploy_tidb', 'deploy_hudi_flink_tidb', 'sink_task',
-                'down_hudi_flink', 'stop_tidb', 'down_tidb', 'compile_hudi', 'show_env_vars_info',
-                'down', 'clean', 'list_ticdc_jobs', 'rm_ticdc_job', 'parse_tso', 'list_flink_jobs',
-                'rm_hdfs_dir', 'list_etl_jobs', 'rm_etl_job', 'dump_tidb_table', 'rm_flink_job',
-                'list_kafka_topics', 'rm_kafka_topic'
-            ), required=True)
+            '--cmd', help='command enum', choices=cmd_choices, required=True)
         self.args = parser.parse_args()
-        self.funcs_map = {
-            'deploy_hudi_flink': self.deploy_hudi_flink,
-            'deploy_tidb': self.deploy_tidb,
-            'deploy_hudi_flink_tidb': self.deploy_hudi_flink_tidb,
-            'sink_task': self.sink_task,
-            'down_hudi_flink': self.down_hudi_flink,
-            'stop_tidb': self.stop_tidb,
-            'down_tidb': self.down_tidb,
-            'compile_hudi': self.compile_hudi,
-            'show_env_vars_info': self.show_env_vars_info,
-            'down': self.down,
-            'clean': self.clean,
-            'list_ticdc_jobs': self.list_ticdc_jobs,
-            'rm_ticdc_job': self.rm_ticdc_job,
-            'parse_tso': self.parse_tso,
-            'list_flink_jobs': self.list_flink_jobs,
-            'rm_flink_job': self.rm_flink_job,
-            'rm_hdfs_dir': self.rm_hdfs_dir,
-            'list_etl_jobs': self.list_etl_jobs,
-            'rm_etl_job': self.rm_etl_job,
-            'dump_tidb_table': self.dump_tidb_table,
-            'list_kafka_topics': self.list_kafka_topics,
-            'rm_kafka_topic': self.rm_kafka_topic,
-        }
 
     def _run_kafka_topic(self, args):
         cmd = 'docker compose -f {}/{} exec -T kafka bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --zookeeper zookeeper:2181 {}" '.format(
