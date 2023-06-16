@@ -593,8 +593,9 @@ class Runner:
                                        'tidb-cluster.yml.template')
         logger.info(
             "start to gen tidb-ticdc cluster docker compose file: start_port={}, branch={}, template_file=`{}`".format(start_port, branch, template_file))
-        config_file_path = '{}/tidb/{}'.format(SCRIPT_DIR,
-                                               '.tmp.tidb-cluster.yml')
+        base_dir = '{}/tidb'.format(SCRIPT_DIR)
+        config_file_path = '{}/{}'.format(base_dir,
+                                          '.tmp.tidb-cluster.yml')
         if os.path.exists(config_file_path):
             logger.warning(
                 'flink docker compose file `{}` exists, if need to generate new config, please delete it'.format(config_file_path))
@@ -614,6 +615,8 @@ class Runner:
         var_map[TIDB_BRANCH] = branch
         var_map['pingcap_demo_path'] = SCRIPT_DIR
         logger.debug("set basic config: {}".format(var_map))
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
         with open(config_file_path, 'w') as f:
             f.write(template.substitute(var_map))
         logger.info(
