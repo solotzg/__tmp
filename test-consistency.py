@@ -4,6 +4,7 @@ import os
 import json
 import time
 from threading import Thread
+import threading
 
 from inner_utils.common import run_cmd_no_msg
 from inner_utils import *
@@ -13,10 +14,15 @@ SCRIPT_DIR = os.path.realpath(os.path.join(__file__, os.pardir))
 
 
 def func():
-    time.sleep(5)
+    logger.info('start thread `{}`'.format(threading.get_ident()))
+    sleep_time = 5
+    logger.info('start to sleep {}s'.format(sleep_time))
+    time.sleep(sleep_time)
+    logger.info('finish to sleep {}s'.format(sleep_time))
     cmd = './setup-demo.py --cmd sink_task --sink_task_desc="etl3.3.demo.t3" --sink_task_flink_schema_path ./example3/flink.sql.template'
     _, _, ret = run_cmd(cmd, True)
     assert not ret
+    logger.info('end thread `{}`'.format(threading.get_ident()))
 
 
 def main():
@@ -32,12 +38,20 @@ def main():
     run_cmd(cmd)
     thread_1 = Thread(target=func, daemon=True, name='flink-hudi-bench')
     thread_1.start()
+    loop_cnt = 2000
+    logger.info(
+        'start to exec with sql `insert into demo.t3 (select max(a)+1,max(a)+1 from demo.t3)`, loop {} times'.format(loop_cnt))
     for _ in range(2000):
         cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "insert into demo.t3 (select max(a)+1,max(a)+1 from demo.t3)"'.format(
             tidb_port)
         _, _, ret = run_cmd_no_msg(cmd)
         assert not ret
-    time.sleep(5)
+    logger.info(
+        'finished to exec sql')
+    sleep_time = 5
+    logger.info('start to sleep {}s'.format(sleep_time))
+    time.sleep(sleep_time)
+    logger.info('finished sleep {}s'.format(sleep_time))
     thread_1.join()
     data = """
 create database demo_hudi;
