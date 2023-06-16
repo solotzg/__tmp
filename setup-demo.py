@@ -603,7 +603,13 @@ class Runner:
             var_map[v] = port
         var_map[TIDB_BRANCH] = branch
         var_map['pingcap_demo_path'] = SCRIPT_DIR
-        var_map['TIDB_COMPOSE_PROJECT_NAME'] = self.compose_project_name + "_tidb"
+        name = self.compose_project_name + "_tidb"
+        all_compose_project_name = self.list_docker_compose_project()
+        if name in all_compose_project_name:
+            logger.error('docker compose project name `{}` is in use. current compose project names:\n{}\n'.format(
+                name, all_compose_project_name))
+            exit(-1)
+        var_map['TIDB_COMPOSE_PROJECT_NAME'] = name
         logger.debug("set basic config: {}".format(var_map))
         with open(config_file_path, 'w') as f:
             f.write(template.substitute(var_map))
@@ -611,6 +617,14 @@ class Runner:
             "gen docker compose config file `{}`".format(config_file_path))
         var_map[tidb_compose_name] = config_file_path
         self.update_env_vars(var_map)
+
+    def list_docker_compose_project(self):
+        cmd = 'docker compose ls -q'
+        out, err, ret = run_cmd(cmd)
+        if ret:
+            logger.error(err)
+            exit(-1)
+        return set(out.strip().split('\n'))
 
     def gen_flink_config_file_from_template(self, start_port, hudi_path):
         template_file = '{}/{}'.format(SCRIPT_DIR,
@@ -639,7 +653,14 @@ class Runner:
         host = get_host_name()
         var_map[demo_host] = host
         var_map[env_libs_name] = self.args.env_libs
-        var_map['LAKE_HOUSE_COMPOSE_PROJECT_NAME'] = self.compose_project_name + "_lakehouse"
+        name = self.compose_project_name + "_lakehouse"
+        all_compose_project_name = self.list_docker_compose_project()
+        if name in all_compose_project_name:
+            logger.error('docker compose project name `{}` is in use. current compose project names:\n{}\n'.format(
+                name, all_compose_project_name))
+            exit(-1)
+        var_map['LAKE_HOUSE_COMPOSE_PROJECT_NAME'] = name
+
         logger.debug("set basic config: {}".format(var_map))
         d = template.substitute(var_map)
         with open(config_file_path, 'w') as f:
