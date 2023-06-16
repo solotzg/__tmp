@@ -71,7 +71,7 @@ services:
   hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
     volumes:
-      - ${pingcap_demo_path}/.tmp.demo/third_party/hive-metastore-postgresql:/var/lib/postgresql
+      - ${pingcap_demo_path}/.tmp.demo/third_party/hive-metastore-postgresql:/var/lib/postgresql/data
     hostname: hive-metastore-postgresql
 
   hivemetastore:
