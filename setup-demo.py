@@ -56,7 +56,7 @@ class Runner:
         assert os.path.exists(lock_file)
         self.unique_lock = open(lock_file, "r")
         fcntl.flock(self.unique_lock, fcntl.LOCK_EX)
-        with open(env_file_path, 'w+') as f:
+        with open(env_file_path, 'a') as f:
             pass
         self._env_vars = self.load_env_data()
         self.funcs_map = {
