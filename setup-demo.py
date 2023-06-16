@@ -498,8 +498,7 @@ class Runner:
         if self.args.env_libs is None:
             self.args.env_libs = self.env_vars.get(env_libs_name)
         assert self.args.env_libs
-        if self.args.env_libs != self.env_vars.get(env_libs_name):
-            self.env_vars.update({env_libs_name: self.args.env_libs})
+        self.detect_change_and_update(env_libs_name, self.args.env_libs)
         return self.args.env_libs
 
     def setup_env_libs(self):
