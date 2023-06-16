@@ -66,7 +66,6 @@ class Runner:
             'deploy_hudi_flink_tidb': self.deploy_hudi_flink_tidb,
             'sink_task': self.sink_task,
             'down_hudi_flink': self.down_hudi_flink,
-            'stop_tidb': self.stop_tidb,
             'down_tidb': self.down_tidb,
             'compile_hudi': self.compile_hudi,
             'show_env_vars_info': self.show_env_vars_info,
@@ -474,6 +473,8 @@ class Runner:
         self.hudi_flink_running = False
 
     def down_tidb(self):
+        logger.info("tidb ({}): start to down tidb docker compose".format(
+            self.env_vars[TIDB_BRANCH]))
         cmd = '{}/stop_clean_tidb.sh'.format(SCRIPT_DIR)
         _, err, ret = run_cmd(cmd, True)
         if ret:
@@ -481,22 +482,6 @@ class Runner:
             exit(-1)
 
         self.tidb_running = False
-
-    def stop_tidb(self):
-        env_vars = self.env_vars
-        if self.tidb_running:
-            logger.info(
-                "tidb is () running, start to stop tidb docker compose".format(env_vars[TIDB_BRANCH]))
-            cmd = '{}/stop_tidb.sh'.format(SCRIPT_DIR)
-            _, err, ret = run_cmd(cmd, True)
-            if ret:
-                logger.error("fail to stop tidb, error:\n{}".format(err))
-                exit(-1)
-
-            self.tidb_running = False
-
-        else:
-            logger.info("tidb is NOT running")
 
     @property
     def env_libs(self):
