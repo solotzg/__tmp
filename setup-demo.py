@@ -161,6 +161,9 @@ class Runner:
     def hudi_repo_path(self):
         if self.args.hudi_repo is None:
             self.args.hudi_repo = self.env_vars.get(HUDI_WS)
+        else:
+            assert os.path.exists(self.args.hudi_repo)
+            self.args.hudi_repo = os.path.realpath(self.args.hudi_repo)
         assert self.args.hudi_repo
         self.detect_change_and_update(HUDI_WS, self.args.hudi_repo)
         return self.args.hudi_repo
@@ -187,7 +190,6 @@ class Runner:
 
     def compile_hudi(self):
         hudi_path = self.hudi_repo_path
-        assert os.path.exists(hudi_path)
 
         need_clean = True
         java_home = self.install_jdk1_8()
