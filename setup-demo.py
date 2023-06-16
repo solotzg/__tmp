@@ -671,6 +671,7 @@ class Runner:
 
         if not self.hudi_compiled_time:
             logger.error('please compile hudi before deploying cluster')
+            exit(-1)
 
         self.setup_env_libs()
 
