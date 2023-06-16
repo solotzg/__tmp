@@ -84,7 +84,7 @@ class Runner:
 
     def destroy(self):
         self.clean()
-        run_cmd('find `pwd` -name ".tmp.*" | xargs rm -rf', True)
+        run_cmd('find {} -name ".tmp.*" | xargs rm -rf'.format(SCRIPT_DIR), True)
         logger.warning("all data is destroyed")
 
     def save_env_data(self, new_data):
