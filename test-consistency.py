@@ -25,7 +25,7 @@ def func():
     logger.info('end thread `{}`'.format(threading.get_ident()))
 
 
-def main():
+def run():
     env_data = json.load(open('{}/.tmp.env.json'.format(SCRIPT_DIR), 'r'))
     tidb_port = env_data['tidb_port']
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "drop table IF EXISTS demo.t3" '.format(
@@ -64,8 +64,9 @@ CREATE TABLE demo_hudi.t3(
   'table.type' = 'MERGE_ON_READ'
 );
 SET sql-client.execution.result-mode=TABLEAU;
-select count(*) from demo_hudi.t3;
-    """
+SET execution.runtime-mode='batch';
+select count(*) as demo_hudi_t3_count from demo_hudi.t3;
+"""
     sql_file_name = '.tmp.bench.kafka-flink-hudi.sql'
     sql_file = '{}/{}'.format(SCRIPT_DIR, sql_file_name)
     with open(sql_file, 'w') as f:
@@ -75,9 +76,11 @@ select count(*) from demo_hudi.t3;
     out, err, ret = run_cmd(cmd,)
     if ret:
         print(err)
-        print(out[-500:])
+        print(out)
         exit(-1)
-    ret_hudi = out.split('\n')[-8][-8:-2].strip()
+    assert out.find('demo_hudi_t3_count') != -1
+    ret_hudi = out.rstrip().split('\n')[-6]
+    ret_hudi = [e for e in ret_hudi.split(' ') if e][1]
     logger.info("hudi result: {}".format(ret_hudi))
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "select count(*) from demo.t3" '.format(
         tidb_port,
@@ -89,10 +92,14 @@ select count(*) from demo_hudi.t3;
     assert mysql_res == ret_hudi
 
 
-if __name__ == '__main__':
+def main():
     try:
-        main()
+        run()
         run_cmd(
             '{}/setup-demo.py --cmd rm_etl_job --etl_job_id etl3'.format(SCRIPT_DIR))
     except Exception as e:
         logger.exception(e)
+
+
+if __name__ == '__main__':
+    main()
