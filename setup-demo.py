@@ -1050,6 +1050,9 @@ rules = ['{}.{}']""".format(db, table)
 
 
 def main():
+    if os.getuid() != 0:
+        logger.error("please checkout to root user")
+        exit(-1)
     Runner().run()
 
 
