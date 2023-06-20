@@ -84,6 +84,7 @@ class Runner:
             'rm_kafka_topic': self.rm_kafka_topic,
             'destroy': self.destroy,
             'list_cluster_env': self.list_cluster_env,
+            'list_all_jobs': self.list_all_jobs,
         }
 
     def list_cluster_env(self):
@@ -295,15 +296,17 @@ class Runner:
             logger.error(
                 "failed to run kafka topics cmd, error:\n{}\n".format(err))
             exit(-1)
-        logger.info('\n{}\n'.format(out))
+        return out
 
     def rm_kafka_topic(self):
         assert self.args.kafka_topic
-        self._run_kafka_topic(
+        out = self._run_kafka_topic(
             '--delete --topic {}'.format(self.args.kafka_topic))
+        logger.info('\n{}\n'.format(out))
 
     def list_kafka_topics(self):
-        self._run_kafka_topic('--list')
+        out = self._run_kafka_topic('--list')
+        logger.info('kafka topics:\n{}\n'.format(out))
 
     def rm_etl_job(self):
         assert self.args.etl_job_id
@@ -342,7 +345,13 @@ class Runner:
 
     def list_etl_jobs(self):
         etl_jobs = self.env_vars.get(etl_jobs_name, {})
-        logger.info("\n{}\n".format(etl_jobs))
+        logger.info("etl jobs:\n{}\n".format(etl_jobs))
+
+    def list_all_jobs(self):
+        self.list_etl_jobs()
+        self.list_ticdc_jobs()
+        self.list_kafka_topics()
+        self.list_flink_jobs()
 
     def parse_tso(self):
         assert self.args.tso
@@ -376,7 +385,7 @@ class Runner:
             logger.error(
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
             exit(-1)
-        logger.info('\n{}'.format(out))
+        logger.info('ticdc jobs:\n{}\n'.format(out))
 
     def rm_ticdc_job(self):
         assert self.args.cdc_changefeed_id
@@ -750,7 +759,7 @@ class Runner:
             logger.error(
                 "failed to list all jobs in flink, error:\n{}\n".format(err))
             exit(-1)
-        logger.info("\n{}\n".format(out))
+        logger.info("flink jobs:\n{}\n".format(out))
 
     def rm_hdfs_dir(self):
         assert self.args.hdfs_url
