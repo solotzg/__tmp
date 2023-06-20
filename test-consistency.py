@@ -13,7 +13,7 @@ from inner_utils import *
 SCRIPT_DIR = os.path.realpath(os.path.join(__file__, os.pardir))
 
 
-def func():
+def sink_table_info_error():
     logger.info('start thread `{}`'.format(threading.get_ident()))
     sleep_time = 5
     logger.info('start to sleep {}s'.format(sleep_time))
@@ -36,7 +36,8 @@ def run():
         tidb_port,
         SCRIPT_DIR)
     run_cmd(cmd)
-    thread_1 = Thread(target=func, daemon=True, name='flink-hudi-bench')
+    thread_1 = Thread(target=sink_table_info_error,
+                      daemon=True, name='flink-hudi-bench')
     thread_1.start()
     loop_cnt = 2000
     logger.info(
@@ -99,6 +100,8 @@ def main():
             '{}/setup-demo.py --cmd rm_etl_job --etl_job_id etl3'.format(SCRIPT_DIR))
     except Exception as e:
         logger.exception(e)
+        logger.warning(
+            "please run `./setup-demo.py --cmd list_all_jobs` and remove jobs manually by `./setup-demo.py --cmd list_***`")
 
 
 if __name__ == '__main__':
