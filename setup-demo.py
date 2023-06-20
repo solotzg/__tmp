@@ -104,7 +104,7 @@ class Runner:
         logger.warning("all data is destroyed")
 
     def save_env_data(self, new_data):
-        json.dump(new_data, open(tmp_env_file_path, 'w'))
+        json.dump(new_data, open(tmp_env_file_path, 'w'), indent=4)
         os.replace(tmp_env_file_path, env_file_path)
         logger.info("save env vars `{}` to `{}`".format(
             new_data, env_file_path))
