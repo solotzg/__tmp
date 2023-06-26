@@ -850,14 +850,19 @@ class Runner:
         out, err, ret = run_cmd(cmd, True, cmd_env)
         if ret:
             logger.error(
-                "failed to create table sink task by ticdc client, error:\n{}".format(err))
+                "failed to create table sink task by ticdc client\nerror:\n{}\nstdout:\n{}\n".format(err, out))
             exit(-1)
 
-        stdout = out.split('\n')
-        assert stdout[1] == 'ID: {}'.format(changefeed_id)
-        prefix = 'Info: '
-        assert stdout[2].startswith(prefix)
-        ticdc_data = json.loads(stdout[2][len(prefix):])
+        ticdc_data = self._load_changefeed_info(
+            ticdc_server_url, changefeed_id, cmd_env)
+        assert ticdc_data is not None
+
+        # stdout = out.split('\n')
+        # assert stdout[1] == 'ID: {}'.format(changefeed_id)
+        # prefix = 'Info: '
+        # assert stdout[2].startswith(prefix)
+        # ticdc_data = json.loads(stdout[2][len(prefix):])
+
         logger.info(
             "create table sink job by ticdc client:\n{}\n".format(ticdc_data))
 
