@@ -364,6 +364,25 @@ class Runner:
         else:
             logger.info('\n{}'.format(out))
 
+    def _load_changefeed_info(self, cdc_server, changefeed_id, cmd_env):
+        details = None
+        ticdc_args = 'cli changefeed query --server={} --changefeed-id {}'.format(
+            cdc_server, changefeed_id
+        )
+        if not self.args.cdc_bin_path:
+            ticdc_args = "'{}'".format(ticdc_args)
+        cmd = '{}/run-cdc-cli.sh {}'.format(
+            SCRIPT_DIR, ticdc_args, )
+        out, err, ret = run_cmd_no_msg(cmd, env=cmd_env)
+        if not ret:
+            try:
+                details = json.loads(out.strip())
+            except Exception as e:
+                logger.error(e)
+                logger.error(out)
+                logger.error(err)
+        return details
+
     def list_ticdc_jobs(self):
         host = get_host_name()
         cdc_server = "http://{}:{}".format(host,
@@ -386,6 +405,12 @@ class Runner:
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
             exit(-1)
         logger.info('ticdc jobs:\n{}\n'.format(out))
+        details = {}
+        for e in json.loads(out.strip()):
+            changefeed_id = e['id']
+            details[changefeed_id] = self._load_changefeed_info(
+                cdc_server, changefeed_id, cmd_env)
+        logger.info('ticdc job details:\n{}\n'.format(details))
 
     def rm_ticdc_job(self):
         assert self.args.cdc_changefeed_id

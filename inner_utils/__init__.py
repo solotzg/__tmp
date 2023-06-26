@@ -7,4 +7,5 @@ __all__ = [
     "logger",
     "wrap_run_time",
     "run_cmd",
+    "run_cmd_no_msg",
 ]
