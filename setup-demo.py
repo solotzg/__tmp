@@ -287,6 +287,7 @@ class Runner:
         parser.add_argument(
             '--cmd', help='command enum', choices=cmd_choices, required=True)
         self.args = parser.parse_args()
+        self.host = get_host_name()
 
     def _run_kafka_topic(self, args):
         cmd = 'docker compose -f {}/{} exec -T kafka bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --zookeeper zookeeper:2181 {}" '.format(
@@ -364,16 +365,29 @@ class Runner:
         else:
             logger.info('\n{}'.format(out))
 
-    def _load_changefeed_info(self, cdc_server, changefeed_id, cmd_env):
-        details = None
-        ticdc_args = 'cli changefeed query --server={} --changefeed-id {}'.format(
-            cdc_server, changefeed_id
+    def _run_ticdc_cmd(self, ticdc_args, cmd_exec=run_cmd, *args, **argv):
+        cdc_server = "http://{}:{}".format(self.host,
+                                           self.env_vars[ticdc_port_name])
+        ticdc_args = 'cli changefeed --server={} {}'.format(
+            cdc_server, ticdc_args
         )
-        if not self.args.cdc_bin_path:
+        cmd_env = {}
+        if self.args.cdc_bin_path:
+            assert os.path.exists(self.args.cdc_bin_path)
+            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
+        else:
             ticdc_args = "'{}'".format(ticdc_args)
+
         cmd = '{}/run-cdc-cli.sh {}'.format(
             SCRIPT_DIR, ticdc_args, )
-        out, err, ret = run_cmd_no_msg(cmd, env=cmd_env)
+
+        out, err, ret = cmd_exec(cmd, env=cmd_env, *args, **argv)
+        return out, err, ret
+
+    def _load_changefeed_info(self, changefeed_id,):
+        details = None
+        out, err, ret = self._run_ticdc_cmd(
+            'query --changefeed-id {}'.format(changefeed_id), cmd_exec=run_cmd_no_msg)
         if not ret:
             try:
                 details = json.loads(out.strip())
@@ -384,22 +398,7 @@ class Runner:
         return details
 
     def list_ticdc_jobs(self):
-        host = get_host_name()
-        cdc_server = "http://{}:{}".format(host,
-                                           self.env_vars[ticdc_port_name])
-        ticdc_args = 'cli changefeed list --server={}'.format(
-            cdc_server
-        )
-        cmd_env = {}
-        if self.args.cdc_bin_path:
-            assert os.path.exists(self.args.cdc_bin_path)
-            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
-        else:
-            ticdc_args = "'{}'".format(ticdc_args)
-
-        cmd = '{}/run-cdc-cli.sh {}'.format(
-            SCRIPT_DIR, ticdc_args, )
-        out, err, ret = run_cmd(cmd, env=cmd_env)
+        out, err, ret = self._run_ticdc_cmd('list')
         if ret:
             logger.error(
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
@@ -408,28 +407,13 @@ class Runner:
         details = {}
         for e in json.loads(out.strip()):
             changefeed_id = e['id']
-            details[changefeed_id] = self._load_changefeed_info(
-                cdc_server, changefeed_id, cmd_env)
+            details[changefeed_id] = self._load_changefeed_info(changefeed_id)
         logger.info('ticdc job details:\n{}\n'.format(details))
 
     def rm_ticdc_job(self):
         assert self.args.cdc_changefeed_id
-
-        host = get_host_name()
-        cdc_server = "http://{}:{}".format(host,
-                                           self.env_vars[ticdc_port_name])
-        ticdc_args = 'cli changefeed remove --server={} --changefeed-id={}'.format(
-            cdc_server, self.args.cdc_changefeed_id
-        )
-        cmd_env = {}
-        if self.args.cdc_bin_path:
-            assert os.path.exists(self.args.cdc_bin_path)
-            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
-        else:
-            ticdc_args = "'{}'".format(ticdc_args)
-        cmd = '{}/run-cdc-cli.sh {}'.format(
-            SCRIPT_DIR, ticdc_args)
-        out, err, ret = run_cmd(cmd, env=cmd_env)
+        out, err, ret = self._run_ticdc_cmd('remove --changefeed-id={}'.format(
+            self.args.cdc_changefeed_id))
         if ret:
             logger.error(
                 "failed to load ticdc tasks by ticdc client, error:\n{}".format(err))
@@ -684,8 +668,7 @@ class Runner:
             var_map[v] = port
         var_map[HUDI_WS] = hudi_path
         var_map['pingcap_demo_path'] = SCRIPT_DIR
-        host = get_host_name()
-        var_map[demo_host] = host
+        var_map[demo_host] = self.host
         var_map[env_libs_name] = self.args.env_libs
         name = self.compose_project_name + "_lakehouse"
         all_compose_project_name = self.list_docker_compose_project()
@@ -816,7 +799,6 @@ class Runner:
     def create_ticdc_sink_job_to_kafka(self, host, etl_uid, table_id, db, table_name):
         ticdc_addr = '{}:{}'.format(
             host, self.env_vars[ticdc_port_name]) if self.args.ticdc_addr is None else self.args.ticdc_addr
-        ticdc_server_url = "http://{}".format(ticdc_addr)
         kafka_addr = '{}:{}'.format(
             host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
         protocol = "canal-json"
@@ -832,36 +814,20 @@ class Runner:
             cdc_config_file)) if not self.args.cdc_bin_path else cdc_config_file
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
-        ticdc_args = 'cli changefeed create --server={} --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
-            ticdc_server_url, kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name
+        ticdc_args = 'create --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
+            kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name
         )
         if self.args.changefeed_start_ts:
             ticdc_args = "{} --start-ts={}".format(ticdc_args,
                                                    int(self.args.changefeed_start_ts))
-        cmd_env = {}
-        if self.args.cdc_bin_path:
-            assert os.path.exists(self.args.cdc_bin_path)
-            cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
-        else:
-            ticdc_args = "'{}'".format(ticdc_args)
-
-        cmd = '{}/run-cdc-cli.sh {}'.format(
-            SCRIPT_DIR, ticdc_args)
-        out, err, ret = run_cmd(cmd, True, cmd_env)
+        out, err, ret = self._run_ticdc_cmd(ticdc_args, show_stdout=True)
         if ret:
             logger.error(
                 "failed to create table sink task by ticdc client\nerror:\n{}\nstdout:\n{}\n".format(err, out))
             exit(-1)
 
-        ticdc_data = self._load_changefeed_info(
-            ticdc_server_url, changefeed_id, cmd_env)
+        ticdc_data = self._load_changefeed_info(changefeed_id, )
         assert ticdc_data is not None
-
-        # stdout = out.split('\n')
-        # assert stdout[1] == 'ID: {}'.format(changefeed_id)
-        # prefix = 'Info: '
-        # assert stdout[2].startswith(prefix)
-        # ticdc_data = json.loads(stdout[2][len(prefix):])
 
         logger.info(
             "create table sink job by ticdc client:\n{}\n".format(ticdc_data))
@@ -948,7 +914,7 @@ class Runner:
             dumpl_to_path_real = dumpl_to_path
 
         args = '-u root -P {} -h {} -o {} --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
-            self.env_vars[tidb_port_name], get_host_name(), dumpl_to_path, start_ts, db, table_name, db, table_name)
+            self.env_vars[tidb_port_name], self.host, dumpl_to_path, start_ts, db, table_name, db, table_name)
         cmd_env = {}
         if self.args.dumpling_bin_path:
             assert self.args.dumpling_tar_path
@@ -998,10 +964,8 @@ class Runner:
 
         self.sink_task_check_tidb_schema(db, table_name)
 
-        host = get_host_name()
-
         kafka_topic, changefeed_id, ticdc_data = self.create_ticdc_sink_job_to_kafka(
-            host, etl_uid, table_id, db, table_name)
+            self.host, etl_uid, table_id, db, table_name)
 
         start_ts = ticdc_data['start_ts']
 
@@ -1015,7 +979,7 @@ class Runner:
 
         hdfs_url = self.gen_hdfs_url(changefeed_id)
         job_id = self.create_flink_job(
-            host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, hdfs_url)
+            self.host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, hdfs_url)
 
         self.save_etl(
             etl_uid,
