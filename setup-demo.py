@@ -760,15 +760,29 @@ class Runner:
             return
         logger.info("\n{}\n".format(out))
 
-    def list_flink_jobs(self):
+    def _get_flink_jobs(self):
         cmd = self.gen_flink_exec('list')
-        out, err, ret = run_cmd(
-            cmd, False)
+        out, err, ret = run_cmd(cmd, )
         if ret:
             logger.error(
                 "failed to list all jobs in flink, error:\n{}\n".format(err))
             exit(-1)
-        logger.info("flink jobs:\n{}\n".format(out))
+        out = out.strip()
+        if out.find('Running/Restarting Jobs') == -1:
+            return []
+        out = out.split('\n')[2:]
+        flink_jobs = []
+        for e in out:
+            if e == '--------------------------------------------------------------':
+                break
+            e = e[22:]
+            e = e.split(' ')
+            flink_jobs.append((e[0], e[2]))
+        return flink_jobs
+
+    def list_flink_jobs(self):
+        flink_jobs = self._get_flink_jobs()
+        logger.info("flink jobs:\n{}\n".format(flink_jobs))
 
     def rm_hdfs_dir(self):
         assert self.args.hdfs_url
@@ -856,6 +870,7 @@ class Runner:
         content = template.substitute(var_map)
 
         with open(flink_sql_real_path, 'w') as f:
+            f.write("SET pipeline.name='{}';\n".format(etl_uid))
             f.write(content)
         logger.info("save flink sink sql to `{}`".format(flink_sql_real_path))
 
@@ -875,18 +890,16 @@ class Runner:
             logger.error(
                 "failed to run flink sql by flink client, error:\n{}".format(err))
             exit(-1)
-        job_id = None
-        job_id_prefix = 'Job ID: '
-        for line in out.split('\n'):
-            line = line.strip()
-            if line.startswith(job_id_prefix):
-                job_id = line[len(job_id_prefix):]
-            if line.find('[ERROR] ') != -1:
-                job_id = None
-                break
-        if job_id:
+        job_ids = []
+        flink_jobs = self._get_flink_jobs()
+        for job in flink_jobs:
+            jid, jname = job
+            if jname == etl_uid:
+                job_ids.append(jid)
+
+        if job_ids:
             logger.info(
-                "success to run flink sql by flink client, sql file path: `{}`, job_id: `{}`".format(flink_sql_real_path, job_id))
+                "success to run flink sql by flink client, sql file path: `{}`, job_ids: `{}`".format(flink_sql_real_path, job_ids))
             logger.info(
                 "please open flink jobmanager web site `http://{}:{}` for details".format(host, self.env_vars[flink_jobmanager_port_name]))
         else:
@@ -894,7 +907,7 @@ class Runner:
                 "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_real_path, out))
             exit(-1)
 
-        return job_id
+        return job_ids
 
     def dump_tidb_table(self):
         assert self.args.db
@@ -983,7 +996,7 @@ class Runner:
                 csv_path[len(SCRIPT_DIR):])
 
         hdfs_url = self.gen_hdfs_url(changefeed_id)
-        job_id = self.create_flink_job(
+        job_ids = self.create_flink_job(
             self.host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, hdfs_url)
 
         self.save_etl(
@@ -991,7 +1004,7 @@ class Runner:
             {
                 table_id:
                 {
-                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: [job_id,], HDFS_NAME: [hdfs_url,],
+                    ticdc_changefeed_name: [changefeed_id,], flink_job_name: job_ids, HDFS_NAME: [hdfs_url,],
                 }
             }
         )
