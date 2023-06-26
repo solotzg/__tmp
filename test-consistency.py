@@ -72,7 +72,7 @@ select count(*) as demo_hudi_t3_count from demo_hudi.t3;
     sql_file = '{}/{}'.format(SCRIPT_DIR, sql_file_name)
     with open(sql_file, 'w') as f:
         f.write(data)
-    cmd = "./run-flink-bash.sh /pingcap/demo/flink-sql-client.sh -f /pingcap/demo/{}".format(
+    cmd = "./run-flink-bash.sh '/pingcap/demo/flink-sql-client.sh -f /pingcap/demo/{}'".format(
         sql_file_name)
     out, err, ret = run_cmd(cmd,)
     if ret:

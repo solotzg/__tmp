@@ -744,7 +744,8 @@ class Runner:
             cmd = '{} {}'.format(
                 self.args.flink_bin_path, args)
         else:
-            cmd = '{}/run-flink-bash.sh /opt/flink/bin/flink {}'.format(
+            args = "'/opt/flink/bin/flink {}'".format(args)
+            cmd = '{}/run-flink-bash.sh {}'.format(
                 SCRIPT_DIR, args)
         return cmd
 
@@ -776,8 +777,10 @@ class Runner:
             cmd = '{} dfs -rm -r {}'.format(self.args.hdfs_bin_path,
                                             self.args.hdfs_url)
         else:
+            args = "'/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'".format(
+                self.args.hdfs_url)
             cmd = '{}/run-flink-bash.sh {}'.format(
-                SCRIPT_DIR, '/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'.format(self.args.hdfs_url))
+                SCRIPT_DIR, args)
         out, err, ret = run_cmd(
             cmd, False, env={})
         if ret:
@@ -861,9 +864,11 @@ class Runner:
             cmd = '{} -f {}'.format(
                 self.args.flink_sql_client_path, flink_sql_real_path)
         else:
-            cmd = '{}/run-flink-bash.sh /pingcap/demo/flink-sql-client.sh -f {}'.format(
-                SCRIPT_DIR,
+            args = "'/pingcap/demo/flink-sql-client.sh -f {}'".format(
                 flink_sql_path_in_docker)
+            cmd = '{}/run-flink-bash.sh {}'.format(
+                SCRIPT_DIR, args
+            )
 
         out, err, ret = run_cmd(cmd, False)
         if ret:

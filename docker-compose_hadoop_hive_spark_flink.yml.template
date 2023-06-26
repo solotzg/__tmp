@@ -246,6 +246,7 @@ services:
     depends_on:
       - jobmanager
       - taskmanager
+    tty: true
     environment:
       - |
         FLINK_PROPERTIES=
