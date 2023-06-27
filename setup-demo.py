@@ -77,6 +77,8 @@ class Runner:
             'list_flink_jobs': self.list_flink_jobs,
             'rm_flink_job': self.rm_flink_job,
             'rm_hdfs_dir': self.rm_hdfs_dir,
+            'ls_hdfs_dir': self.ls_hdfs_dir,
+            'make_hdfs_dir': self.make_hdfs_dir,
             'list_etl_jobs': self.list_etl_jobs,
             'rm_etl_job': self.rm_etl_job,
             'dump_tidb_table': self.dump_tidb_table,
@@ -85,6 +87,7 @@ class Runner:
             'destroy': self.destroy,
             'list_cluster_env': self.list_cluster_env,
             'list_all_jobs': self.list_all_jobs,
+            'rm_all_jobs': self.rm_all_jobs,
         }
 
     def list_cluster_env(self):
@@ -306,14 +309,19 @@ class Runner:
         logger.info('\n{}\n'.format(out))
 
     def list_kafka_topics(self):
+        out = self._list_kafka_topics()
+        logger.info('kafka topics:\n{}\n'.format('\n'.join(out)))
+
+    def _list_kafka_topics(self):
         out = self._run_kafka_topic('--list')
-        logger.info('kafka topics:\n{}\n'.format(out))
+        out = [e for e in out.split('\n') if e]
+        return out
 
     def rm_etl_job(self):
         assert self.args.etl_job_id
         etl_jobs = self.env_vars.get(etl_jobs_name, {})
         job: dict = etl_jobs.get(self.args.etl_job_id)
-        if job:
+        if job is not None:
             logger.info("start to remove etl job `{}`:\n{}\n".format(
                 self.args.etl_job_id, job))
             for tid, table in job.items():
@@ -353,6 +361,29 @@ class Runner:
         self.list_ticdc_jobs()
         self.list_kafka_topics()
         self.list_flink_jobs()
+        self.ls_hdfs_dir('pingcap/demo')
+
+    def rm_all_jobs(self):
+        etl_jobs: dict = self.env_vars.get(etl_jobs_name, {})
+        for etl_job_id in list(etl_jobs):
+            self.args.etl_job_id = etl_job_id
+            self.rm_etl_job()
+        ticdc_job_ids = self._list_ticdc_jobs().keys()
+        for cdc_changefeed_id in ticdc_job_ids:
+            self.args.cdc_changefeed_id = cdc_changefeed_id
+            self.rm_ticdc_job()
+        flink_jobs = self._get_flink_jobs()
+        for fid, _ in flink_jobs:
+            self.args.flink_job_id = fid
+            self.rm_flink_job()
+        self.args.hdfs_url = 'pingcap/demo'
+        self.rm_hdfs_dir()
+        topics = self._list_kafka_topics()
+        for topic in topics:
+            if topic.startswith('__'):
+                continue
+            self.args.kafka_topic = topic
+            self.rm_kafka_topic()
 
     def parse_tso(self):
         assert self.args.tso
@@ -397,7 +428,7 @@ class Runner:
                 logger.error(err)
         return details
 
-    def list_ticdc_jobs(self):
+    def _list_ticdc_jobs(self):
         out, err, ret = self._run_ticdc_cmd('list')
         if ret:
             logger.error(
@@ -408,6 +439,10 @@ class Runner:
         for e in json.loads(out.strip()):
             changefeed_id = e['id']
             details[changefeed_id] = self._load_changefeed_info(changefeed_id)
+        return details
+
+    def list_ticdc_jobs(self):
+        details = self._list_ticdc_jobs()
         logger.info('ticdc job details:\n{}\n'.format(details))
 
     def rm_ticdc_job(self):
@@ -738,7 +773,7 @@ class Runner:
         self.deploy_hudi_flink()
         self.deploy_tidb()
 
-    def gen_flink_exec(self, args):
+    def _gen_flink_exec(self, args):
         if self.args.flink_bin_path:
             assert os.path.exists(self.args.flink_bin_path)
             cmd = '{} {}'.format(
@@ -751,7 +786,7 @@ class Runner:
 
     def rm_flink_job(self):
         assert self.args.flink_job_id
-        cmd = self.gen_flink_exec('cancel {}'.format(self.args.flink_job_id))
+        cmd = self._gen_flink_exec('cancel {}'.format(self.args.flink_job_id))
         out, err, ret = run_cmd(
             cmd, False)
         if ret:
@@ -761,7 +796,7 @@ class Runner:
         logger.info("\n{}\n".format(out))
 
     def _get_flink_jobs(self):
-        cmd = self.gen_flink_exec('list')
+        cmd = self._gen_flink_exec('list')
         out, err, ret = run_cmd(cmd, )
         if ret:
             logger.error(
@@ -784,19 +819,47 @@ class Runner:
         flink_jobs = self._get_flink_jobs()
         logger.info("flink jobs:\n{}\n".format(flink_jobs))
 
-    def rm_hdfs_dir(self):
+    def _init_hdfs_url(self):
         assert self.args.hdfs_url
+        if not self.args.hdfs_url.startswith('hdfs://'):
+            self.args.hdfs_url = self._gen_hdfs_url(self.args.hdfs_url)
+
+    def _exec_hdfs_cmd(self, args):
         if self.args.hdfs_bin_path:
             assert os.path.exists(self.args.hdfs_bin_path)
-            cmd = '{} dfs -rm -r {}'.format(self.args.hdfs_bin_path,
-                                            self.args.hdfs_url)
+            cmd = '{} dfs {}'.format(self.args.hdfs_bin_path, args)
         else:
-            args = "'/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs -rm -r {}'".format(
-                self.args.hdfs_url)
+            args = "'/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs {}'".format(
+                args)
             cmd = '{}/run-flink-bash.sh {}'.format(
                 SCRIPT_DIR, args)
-        out, err, ret = run_cmd(
-            cmd, False, env={})
+        return run_cmd(cmd, False, env={})
+
+    def make_hdfs_dir(self):
+        self._init_hdfs_url()
+        args = '-mkdir -p {}'.format(self.args.hdfs_url)
+        out, err, ret = self._exec_hdfs_cmd(args)
+        if ret:
+            logger.error(
+                "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_url, out, err))
+            return
+        logger.info("make dir `{}`".format(self.args.hdfs_url))
+
+    def ls_hdfs_dir(self, path=None):
+        if path is not None:
+            self.args.hdfs_url = path
+        self._init_hdfs_url()
+        args = '-ls {}'.format(self.args.hdfs_url)
+        out, err, ret = self._exec_hdfs_cmd(args)
+        if ret:
+            logger.warning("\n{}\n".format(err))
+            return
+        logger.info("\n{}\n".format(out))
+
+    def rm_hdfs_dir(self):
+        self._init_hdfs_url()
+        args = '-rm -r -f {}'.format(self.args.hdfs_url)
+        out, err, ret = self._exec_hdfs_cmd(args)
         if ret:
             logger.error(
                 "failed to delete {}, out:\n{}\nerror:\n{}\n".format(self.args.hdfs_url, out, err))
@@ -961,9 +1024,11 @@ class Runner:
             exit(-1)
         return csv_output_path
 
-    def gen_hdfs_url(self, uri):
+    def _gen_hdfs_url(self, sub_path: str):
+        if sub_path.startswith('/'):
+            sub_path = sub_path.lstrip('/')
         hdfs_addr = 'namenode:8020' if self.args.hdfs_addr is None else self.args.hdfs_addr
-        return "hdfs://{}/pingcap/demo/{}".format(hdfs_addr, uri)
+        return "hdfs://{}/{}".format(hdfs_addr, sub_path)
 
     def sink_task(self):
         assert self.args.sink_task_desc
@@ -995,7 +1060,9 @@ class Runner:
             csv_output_path = '/pingcap/demo/{}'.format(
                 csv_path[len(SCRIPT_DIR):])
 
-        hdfs_url = self.gen_hdfs_url(changefeed_id)
+        hdfs_url = self._gen_hdfs_url('pingcap/demo/{}'.format(changefeed_id))
+        self.args.hdfs_url = hdfs_url
+        self.make_hdfs_dir()
         job_ids = self.create_flink_job(
             self.host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, hdfs_url)
 
