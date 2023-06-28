@@ -304,9 +304,12 @@ class Runner:
 
     def rm_kafka_topic(self):
         assert self.args.kafka_topic
-        out = self._run_kafka_topic(
-            '--delete --topic {}'.format(self.args.kafka_topic))
-        logger.info('\n{}\n'.format(out))
+        try:
+            out = self._run_kafka_topic(
+                '--delete --topic {}'.format(self.args.kafka_topic))
+            logger.info('\n{}\n'.format(out))
+        except:
+            pass
 
     def list_kafka_topics(self):
         out = self._list_kafka_topics()
