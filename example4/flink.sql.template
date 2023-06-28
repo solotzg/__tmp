@@ -1,0 +1,31 @@
+set execution.checkpointing.interval = 2sec;
+create database demo_flink;
+create database demo_hudi;
+
+create table demo_flink.t4(a int PRIMARY KEY NOT ENFORCED, b int) with('connector'='kafka', 'topic'='${kafka_topic}', 'properties.bootstrap.servers'='${kafka_address}', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='earliest-offset');
+create table demo_flink.t4_file
+(
+  a int PRIMARY KEY NOT ENFORCED, b int
+)
+with (
+  'connector'='filesystem',
+  'path' = 'file://${csv_file_path}',
+  'format'='csv'
+);
+
+CREATE TABLE demo_hudi.t4_agg(
+  c INT PRIMARY KEY NOT ENFORCED,
+  d BIGINT
+) WITH (
+  'connector' = 'hudi',
+  'path' = '${hdfs_address}/agg',
+  'table.type' = 'MERGE_ON_READ'
+);
+
+SET table.dml-sync=true;
+
+insert into demo_hudi.t4_agg (select b, sum(a) from demo_flink.t4_file group by b);
+
+RESET table.dml-sync;
+
+insert into demo_hudi.t4_agg (select b, sum(a) from demo_flink.t4 group by b);
