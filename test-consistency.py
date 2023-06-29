@@ -47,6 +47,15 @@ def run():
             tidb_port)
         _, _, ret = run_cmd_no_msg(cmd)
         assert not ret
+
+    logger.info(
+        'start to delete a few records')
+
+    cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "delete from demo.t3 where a < 3 "'.format(
+        tidb_port)
+    _, _, ret = run_cmd(cmd)
+    assert not ret
+
     logger.info(
         'finished to exec sql')
     sleep_time = 5
