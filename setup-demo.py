@@ -997,7 +997,7 @@ class Runner:
             dumpl_to_path = self.args.dumpling_tar_path
             dumpl_to_path_real = dumpl_to_path
 
-        args = '-u root -P {} -h {} -o {} --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
+        args = '-u root -P {} -h {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
             self.env_vars[tidb_port_name], self.host, dumpl_to_path, start_ts, db, table_name, db, table_name)
         cmd_env = {}
         if self.args.dumpling_bin_path:
@@ -1019,12 +1019,6 @@ class Runner:
             db, table_name)
         logger.info("success to dump table {}.{} to `{}`".format(
             db, table_name, csv_output_path, ))
-        cmd = 'sed -i "1d" {}'.format(csv_output_path)
-        _, err, ret = run_cmd(cmd)
-        if ret:
-            logger.error(
-                "failed to remove first row of {}, error:\n{}\n".format(csv_output_path, err))
-            exit(-1)
         return csv_output_path
 
     def _gen_hdfs_url(self, sub_path: str):
