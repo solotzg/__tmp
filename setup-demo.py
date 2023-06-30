@@ -32,7 +32,7 @@ TIDB_BRANCH = 'TIDB_BRANCH'
 demo_host = 'demo_host'
 env_libs_name = 'env_libs'
 start_port_name = 'start_port'
-hadoop_name = "hadoop-2.8.4"
+HADOOP_NAME = "hadoop-2.8.4"
 java_home_var_name = 'JAVA_HOME'
 tidb_version_prefix = 'release-'
 etl_jobs_name = "etl_jobs"
@@ -43,6 +43,10 @@ CDC_BIN_PATH = 'CDC_BIN_PATH'
 HUDI_FLINK_YML = '.tmp.docker-compose_hadoop_hive_spark_flink.yml'
 HUDI_COMPILED_TIME = 'hudi_compiled'
 COMPOSE_PROJECT_NAME = 'COMPOSE_PROJECT_NAME'
+HUDI_VERSION = '0.12.3'
+FLINK_VERSION = '1.13'
+HUDI_FLINK_BUNDLE_NAME = "hudi-flink{}-bundle-{}.jar".format(
+    FLINK_VERSION, HUDI_VERSION)
 
 
 def get_host_name():
@@ -181,18 +185,25 @@ class Runner:
     def hudi_compiled_time(self, v):
         self.detect_change_and_update(HUDI_COMPILED_TIME, v)
 
-    def mvn_compile_hudi(self, java_home, hudi_path, need_clean,):
+    def mvn_compile_hudi(self, java_home, hudi_path, need_clean=True,):
         _, stderr, retcode = run_cmd(
-            "export JAVA_HOME={} "
-            "&& cd {} && mvn {} package -Pintegration-tests -DskipTests -Drat.skip=true -Dflink1.13".
+            "export JAVA_HOME={}"
+            "&& cd {}"
+            "&& git checkout release-{}"
+            "&& cd packaging/hudi-flink-bundle"
+            "&& mvn {} package -Pflink-bundle-shade-hive2 -DskipTests -Drat.skip=true -Dflink{}".
             format(
                 java_home,
                 hudi_path,
-                "clean" if need_clean else ""
+                HUDI_VERSION,
+                "clean" if need_clean else "",
+                FLINK_VERSION,
             ), show_stdout=True)
         if retcode:
             logger.error(stderr)
             exit(-1)
+        logger.warning(
+            'You can copy `{}/packaging/hudi-flink-bundle/target/{}` to env libs directory'.format(HUDI_FLINK_BUNDLE_NAME, hudi_path))
 
     def __mvn_compile_hudi(self, *argv, **args):
         pass
@@ -200,14 +211,13 @@ class Runner:
     def compile_hudi(self):
         hudi_path = self.hudi_repo_path
 
-        need_clean = True
         java_home = self.install_jdk1_8()
         if self.hudi_compiled_time is not None:
             logger.info('hudi was compiled at `{}`'.format(
                 self.hudi_compiled_time))
             return
 
-        self.mvn_compile_hudi(java_home, hudi_path, need_clean)
+        self.mvn_compile_hudi(java_home, hudi_path)
         # self.__mvn_compile_hudi()
 
         self.hudi_compiled_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -557,32 +567,31 @@ class Runner:
         if not os.path.exists(env_libs):
             os.makedirs(env_libs)
 
-        hadoop_path = os.path.join(env_libs, hadoop_name)
-        hadoop_tar_name = '{}.tar.gz'.format(hadoop_name)
+        hadoop_path = os.path.join(env_libs, HADOOP_NAME)
+        hadoop_tar_name = '{}.tar.gz'.format(HADOOP_NAME)
         hadoop_url = "{}/{}".format(DOWNLOAD_URL, hadoop_tar_name)
 
         flink_sql_connector_name = 'flink-sql-connector-kafka_2.12-1.13.6.jar'
         flink_sql_connector_url = "{}/{}".format(
             DOWNLOAD_URL, flink_sql_connector_name)
-        hudi_flink_bundle_name = "hudi-flink-bundle_2.12-0.10.0.jar"
         hudi_flink_bundle_url = "{}/{}".format(
-            DOWNLOAD_URL, hudi_flink_bundle_name)
+            DOWNLOAD_URL, HUDI_FLINK_BUNDLE_NAME)
 
         if not os.path.exists(hadoop_path):
             cmd = ['cd {} && mkdir -p .tmp'.format(env_libs),
                    'curl -o {} {}'.format(hadoop_tar_name, hadoop_url),
                    'rm -rf {} && rm -rf .tmp/{}'.format(
-                       hadoop_name, hadoop_name),
+                       HADOOP_NAME, HADOOP_NAME),
                    'tar zxf {} -C .tmp'.format(hadoop_tar_name),
-                   'mv .tmp/{} {}'.format(hadoop_name, hadoop_name),
-                   'cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml'.format(SCRIPT_DIR, hadoop_name)]
+                   'mv .tmp/{} {}'.format(HADOOP_NAME, HADOOP_NAME),
+                   'cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml'.format(SCRIPT_DIR, HADOOP_NAME)]
             _, _, status = run_cmd(' && ' .join(cmd))
             assert status == 0
         if not os.path.exists(os.path.join(env_libs, flink_sql_connector_name)):
             _, _, status = run_cmd("cd {} && wget {}".format(
                 env_libs, flink_sql_connector_url))
             assert status == 0
-        if not os.path.exists(os.path.join(env_libs, hudi_flink_bundle_name)):
+        if not os.path.exists(os.path.join(env_libs, HUDI_FLINK_BUNDLE_NAME)):
             _, _, status = run_cmd("cd {} && wget {}".format(
                 env_libs, hudi_flink_bundle_url))
             assert status == 0
@@ -836,8 +845,9 @@ class Runner:
             assert os.path.exists(self.args.hdfs_bin_path)
             cmd = '{} dfs {}'.format(self.args.hdfs_bin_path, args)
         else:
-            args = "'/pingcap/env_libs/hadoop-2.8.4/bin/hdfs dfs {}'".format(
-                args)
+            args = "'/pingcap/env_libs/{}/bin/hdfs dfs {}'".format(
+                HADOOP_NAME,
+                args,)
             cmd = '{}/run-flink-bash.sh {}'.format(
                 SCRIPT_DIR, args)
         return run_cmd(cmd, False, env={})
