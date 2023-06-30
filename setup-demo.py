@@ -203,7 +203,7 @@ class Runner:
             logger.error(stderr)
             exit(-1)
         logger.warning(
-            'You can copy `{}/packaging/hudi-flink-bundle/target/{}` to env libs directory'.format(HUDI_FLINK_BUNDLE_NAME, hudi_path))
+            'You can copy `{}/packaging/hudi-flink-bundle/target/{}` to env libs directory'.format(hudi_path, HUDI_FLINK_BUNDLE_NAME, ))
 
     def __mvn_compile_hudi(self, *argv, **args):
         pass
