@@ -2,3 +2,4 @@
 *.pyc
 *.jar
 launch.json
+.vscode/

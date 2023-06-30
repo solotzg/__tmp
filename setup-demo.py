@@ -182,10 +182,14 @@ class Runner:
         self.detect_change_and_update(HUDI_COMPILED_TIME, v)
 
     def mvn_compile_hudi(self, java_home, hudi_path, need_clean,):
-        _, stderr, retcode = run_cmd("export JAVA_HOME={} && cd {} && mvn {} package -Pintegration-tests -DskipTests -Drat.skip=true".format(
-            java_home,
-            hudi_path,
-            "clean" if need_clean else ""), show_stdout=True)
+        _, stderr, retcode = run_cmd(
+            "export JAVA_HOME={} "
+            "&& cd {} && mvn {} package -Pintegration-tests -DskipTests -Drat.skip=true -Dflink1.13".
+            format(
+                java_home,
+                hudi_path,
+                "clean" if need_clean else ""
+            ), show_stdout=True)
         if retcode:
             logger.error(stderr)
             exit(-1)
