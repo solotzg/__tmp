@@ -167,7 +167,7 @@ services:
       - ${pingcap_demo_path}/.tmp.demo/third_party/zookeeper:/bitnami
 
   kafka:
-    image: 'bitnami/kafka:2.4.0'
+    image: 'bitnami/kafka:${KAFKA_VERSION}'
     hostname: kafkabroker
     ports:
       - "$kafka_port:9092"
@@ -202,7 +202,7 @@ services:
       - ${HUDI_WS}:/var/hoodie/ws
 
   jobmanager:
-    image: flink:1.13
+    image: flink:${FLINK_VERSION}
     volumes:
       - ${env_libs}:/pingcap/env_libs
       - ${pingcap_demo_path}:/pingcap/demo
@@ -218,7 +218,7 @@ services:
     restart: on-failure
 
   taskmanager:
-    image: flink:1.13
+    image: flink:${FLINK_VERSION}
     volumes:
       - ${env_libs}:/pingcap/env_libs
       - ${pingcap_demo_path}:/pingcap/demo
@@ -236,7 +236,7 @@ services:
     restart: on-failure
 
   sql-client:
-    image: flink:1.13
+    image: flink:${FLINK_VERSION}
     # command: /opt/flink/bin/flink-sql-client.sh embedded
     command: bash
     volumes:

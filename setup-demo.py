@@ -22,7 +22,7 @@ tidb_port_name = 'tidb_port'
 TIDB_PORT_NAME_SET = {"pd_port", "tikv_status_port",
                       tidb_port_name, ticdc_port_name}
 tidb_compose_name = 'tidb-compose'
-hufi_flink_compose = 'hufi-flink-compose'
+HUFI_FLINK_COMPOSE_NAME = 'hufi-flink-compose'
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
 tmp_env_file_path = "{}/.tmp._env.json".format(SCRIPT_DIR)
 HUDI_WS = 'HUDI_WS'
@@ -40,14 +40,19 @@ ticdc_changefeed_name = 'ticdc_changefeed'
 flink_job_name = 'flink_job'
 HDFS_NAME = 'hdfs'
 CDC_BIN_PATH = 'CDC_BIN_PATH'
-HUDI_FLINK_YML = '.tmp.docker-compose_hadoop_hive_spark_flink.yml'
+HUDI_FLINK_YML_NAME = 'docker-compose_hadoop_hive_spark_flink.yml'
+HUDI_FLINK_YML = '.tmp.{}'.format(HUDI_FLINK_YML_NAME)
+HUDI_FLINK_YML_TEMPLATE = '{}.template'.format(HUDI_FLINK_YML_NAME)
 HUDI_COMPILED_TIME = 'hudi_compiled'
 COMPOSE_PROJECT_NAME = 'COMPOSE_PROJECT_NAME'
 HUDI_VERSION = '0.12.3'
 FLINK_VERSION = '1.13'
+FLINK_VERSION_NAME = 'FLINK_VERSION'
 HUDI_FLINK_BUNDLE_NAME_FMT = "hudi-flink{}-bundle-{}.jar"
 HUDI_FLINK_BUNDLE_NAME = HUDI_FLINK_BUNDLE_NAME_FMT.format(
     FLINK_VERSION, HUDI_VERSION)
+KAFKA_VERSION = "2.4.0"
+KAFKA_VERSION_NAME = "KAFKA_VERSION"
 
 
 def get_host_name():
@@ -96,7 +101,7 @@ class Runner:
         }
 
     def list_cluster_env(self):
-        files = [self.env_vars.get(hufi_flink_compose),
+        files = [self.env_vars.get(HUFI_FLINK_COMPOSE_NAME),
                  self.env_vars.get(tidb_compose_name)]
         for p in files:
             if not p or not os.path.exists(p):
@@ -308,8 +313,8 @@ class Runner:
         self.host = get_host_name()
 
     def _run_kafka_topic(self, args):
-        cmd = 'docker compose -f {}/{} exec -T kafka bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --zookeeper zookeeper:2181 {}" '.format(
-            SCRIPT_DIR, HUDI_FLINK_YML, args)
+        cmd = 'docker compose -f {} exec -T kafka bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --zookeeper zookeeper:2181 {}" '.format(
+            self.env_vars[HUFI_FLINK_COMPOSE_NAME], args)
         out, err, retcode = run_cmd(cmd)
         if retcode:
             logger.error(
@@ -505,7 +510,7 @@ class Runner:
     def clean(self):
         self.down()
         env_vars = self.env_vars
-        files = [env_vars.get(hufi_flink_compose),
+        files = [env_vars.get(HUFI_FLINK_COMPOSE_NAME),
                  env_vars.get(tidb_compose_name)]
         for p in files:
             if p:
@@ -578,6 +583,8 @@ class Runner:
         hudi_flink_bundle_url = "{}/{}".format(
             DOWNLOAD_URL, HUDI_FLINK_BUNDLE_NAME)
 
+        err_msg = []
+
         if not os.path.exists(hadoop_path):
             cmd = ['cd {} && mkdir -p .tmp'.format(env_libs),
                    'curl -o {} {}'.format(hadoop_tar_name, hadoop_url),
@@ -586,17 +593,27 @@ class Runner:
                    'tar zxf {} -C .tmp'.format(hadoop_tar_name),
                    'mv .tmp/{} {}'.format(HADOOP_NAME, HADOOP_NAME),
                    'cp {}/hdfs-site.xml {}/etc/hadoop/hdfs-site.xml'.format(SCRIPT_DIR, HADOOP_NAME)]
-            _, _, status = run_cmd(' && ' .join(cmd))
-            assert status == 0
+            out, err, status = run_cmd(' && ' .join(cmd))
+            if status:
+                err_msg.append((out, err))
         if not os.path.exists(os.path.join(env_libs, flink_sql_connector_name)):
-            _, _, status = run_cmd("cd {} && wget {}".format(
+            out, err, status = run_cmd("cd {} && wget {}".format(
                 env_libs, flink_sql_connector_url))
-            assert status == 0
+            if status:
+                err_msg.append((out, err))
         if not os.path.exists(os.path.join(env_libs, HUDI_FLINK_BUNDLE_NAME)):
-            _, _, status = run_cmd("cd {} && wget {}".format(
+            out, err, status = run_cmd("cd {} && wget {}".format(
                 env_libs, hudi_flink_bundle_url))
-            assert status == 0
-            assert status == 0
+            if status:
+                err_msg.append((out, err))
+
+        if err_msg:
+            for o, e in err_msg:
+                logger.error(o)
+                logger.error(e)
+            logger.warning(
+                'please download related jar from `https://repo.maven.apache.org/maven2/org/apache`')
+            exit(-1)
 
     def detect_change_and_update(self, key, val):
         if self.env_vars.get(key) != val:
@@ -698,7 +715,7 @@ class Runner:
 
     def gen_flink_config_file_from_template(self, start_port, hudi_path):
         template_file = '{}/{}'.format(SCRIPT_DIR,
-                                       'docker-compose_hadoop_hive_spark_flink.yml.template')
+                                       HUDI_FLINK_YML_TEMPLATE,)
         logger.info(
             "start to gen flink-hudi cluster docker compose file: start_port={}, hudi_root={}, template_file=`{}`".format(
                 start_port, hudi_path, template_file))
@@ -722,6 +739,8 @@ class Runner:
         var_map['pingcap_demo_path'] = SCRIPT_DIR
         var_map[demo_host] = self.host
         var_map[env_libs_name] = self.args.env_libs
+        var_map[FLINK_VERSION_NAME] = FLINK_VERSION
+        var_map[KAFKA_VERSION_NAME] = KAFKA_VERSION
         name = self.compose_project_name + "_lakehouse"
         all_compose_project_name = self.list_docker_compose_project()
         if name in all_compose_project_name:
@@ -736,7 +755,7 @@ class Runner:
             f.write(d)
         logger.info(
             "gen docker compose config file `{}`".format(config_file_path))
-        var_map[hufi_flink_compose] = config_file_path
+        var_map[HUFI_FLINK_COMPOSE_NAME] = config_file_path
         self.update_env_vars(var_map)
 
     @property
@@ -900,7 +919,6 @@ class Runner:
         kafka_addr = '{}:{}'.format(
             host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
         protocol = "canal-json"
-        kafka_version = "2.4.0"
         partition_num = 1
         max_message_bytes = 67108864
         replication_factor = 1
@@ -913,7 +931,7 @@ class Runner:
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
         ticdc_args = 'create --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
-            kafka_addr, topic, protocol, kafka_version, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name
+            kafka_addr, topic, protocol, KAFKA_VERSION, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name
         )
         if self.args.changefeed_start_ts:
             ticdc_args = "{} --start-ts={}".format(ticdc_args,
