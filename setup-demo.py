@@ -396,7 +396,7 @@ class Runner:
             self.args.cdc_changefeed_id = cdc_changefeed_id
             self.rm_ticdc_job()
         flink_jobs = self._get_flink_jobs()
-        for fid, _ in flink_jobs:
+        for fid, _ in flink_jobs.items():
             self.args.flink_job_id = fid
             self.rm_flink_job()
         self.args.hdfs_url = 'pingcap/demo'
@@ -537,7 +537,7 @@ class Runner:
             pass
 
     def show_env_vars_info(self):
-        print(self.env_vars)
+        std_logger.info(self.env_vars)
 
     def down_hudi_flink(self):
         logger.info("start to down hudi flink docker compose")
@@ -831,29 +831,37 @@ class Runner:
             return
         logger.info("\n{}\n".format(out))
 
-    def _get_flink_jobs(self):
-        cmd = self._gen_flink_exec('list')
-        out, err, ret = run_cmd(cmd, )
-        if ret:
-            logger.error(
-                "failed to list all jobs in flink, error:\n{}\n".format(err))
-            exit(-1)
-        out = out.strip()
-        if out.find('Running/Restarting Jobs') == -1:
-            return []
-        out = out.split('\n')[2:]
-        flink_jobs = []
-        for e in out:
-            if e == '--------------------------------------------------------------':
-                break
-            e = e[22:]
-            e = e.split(' ')
-            flink_jobs.append((e[0], e[2]))
+    def _get_flink_jobs(self) -> dict:
+        import requests
+        url = '{}/jobs'.format(self.flink_base_url)
+        flink_running_id = []
+        for job in requests.get(url).json()['jobs']:
+            if job['status'].lower() == 'running':
+                flink_running_id.append(job['id'])
+        flink_jobs = {}
+        for fid in flink_running_id:
+            url = '{}/jobs/{}'.format(self.flink_base_url, fid)
+            job_info = requests.get(url).json()
+            flink_jobs[fid] = {n: job_info[n]
+                               for n in ['name', 'state']}
+            assert fid == job_info['jid']
+
+        std_logger.info(flink_jobs)
         return flink_jobs
+
+    def _get_flink_job_checkpoint(self, jid):
+        import requests
+        url = '{}/jobs/{}/checkpoints'.format(self.flink_base_url, jid)
+        res = requests.get(url).json()
+        return res
 
     def list_flink_jobs(self):
         flink_jobs = self._get_flink_jobs()
         logger.info("flink jobs:\n{}\n".format(flink_jobs))
+        data = [self._get_flink_job_checkpoint(
+            jid) for jid in flink_jobs.keys()]
+        logger.info(
+            "flink jobs checkpoint info:\n{}\n".format(json.dumps(data)))
 
     def _init_hdfs_url(self):
         assert self.args.hdfs_url
@@ -914,8 +922,6 @@ class Runner:
                 db, table_name, out))
 
     def create_ticdc_sink_job_to_kafka(self, host, etl_uid, table_id, db, table_name):
-        ticdc_addr = '{}:{}'.format(
-            host, self.env_vars[ticdc_port_name]) if self.args.ticdc_addr is None else self.args.ticdc_addr
         kafka_addr = '{}:{}'.format(
             host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
         protocol = "canal-json"
@@ -950,11 +956,10 @@ class Runner:
 
         return topic, changefeed_id, ticdc_data
 
-    def create_flink_job(self, host, etl_uid, table_id, db, table_name, topic, csv_output_path, hdfs_url):
-        content = load_file(self.args.sink_task_flink_schema_path)
+    def create_flink_job(self, host, etl_uid, table_id, topic, csv_output_path, hdfs_url, flink_sql_template,):
         kafka_addr = '{}:{}'.format(
             host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
-        template = Template(content)
+        template = Template(flink_sql_template)
         var_map = {
             "kafka_address": kafka_addr,
             "kafka_topic": topic,
@@ -962,15 +967,15 @@ class Runner:
             "csv_file_path": csv_output_path,
         }
         logger.debug("set basic config: {}".format(var_map))
-        flink_sql_file = '.tmp.flink.sink-{}-{}-{}.{}.sql'.format(
-            etl_uid, table_id, db, table_name)
+        flink_sql_file = '.tmp.flink.sink-{}-{}.sql'.format(
+            etl_uid, table_id, )
         flink_sql_real_path = '{}/{}'.format(SCRIPT_DIR, flink_sql_file)
         flink_sql_path_in_docker = '/pingcap/demo/{}'.format(flink_sql_file)
-        content = template.substitute(var_map)
+        flink_sql_template = template.substitute(var_map)
 
         with open(flink_sql_real_path, 'w') as f:
             f.write("SET pipeline.name='{}';\n".format(etl_uid))
-            f.write(content)
+            f.write(flink_sql_template)
         logger.info("save flink sink sql to `{}`".format(flink_sql_real_path))
 
         if self.args.flink_sql_client_path:
@@ -984,29 +989,11 @@ class Runner:
                 SCRIPT_DIR, args
             )
 
-        out, err, ret = run_cmd(cmd, False)
+        _, err, ret = run_cmd(cmd, show_stdout=True)
         if ret:
             logger.error(
                 "failed to run flink sql by flink client, error:\n{}".format(err))
             exit(-1)
-        job_ids = []
-        flink_jobs = self._get_flink_jobs()
-        for job in flink_jobs:
-            jid, jname = job
-            if jname == etl_uid:
-                job_ids.append(jid)
-
-        if job_ids:
-            logger.info(
-                "success to run flink sql by flink client, sql file path: `{}`, job_ids: `{}`".format(flink_sql_real_path, job_ids))
-            logger.info(
-                "please open flink jobmanager web site `http://{}:{}` for details".format(host, self.env_vars[flink_jobmanager_port_name]))
-        else:
-            logger.error(
-                "failed to run flink sql by flink client, sql file path: `{}`, stdout:\n{}\n".format(flink_sql_real_path, out))
-            exit(-1)
-
-        return job_ids
 
     def dump_tidb_table(self):
         assert self.args.db
@@ -1060,6 +1047,10 @@ class Runner:
         hdfs_addr = 'namenode:8020' if self.args.hdfs_addr is None else self.args.hdfs_addr
         return "hdfs://{}/{}".format(hdfs_addr, sub_path)
 
+    @property
+    def flink_base_url(self):
+        return 'http://{}:{}'.format(self.host, self.env_vars[flink_jobmanager_port_name])
+
     def sink_task(self):
         assert self.args.sink_task_desc
         assert self.args.sink_task_flink_schema_path
@@ -1093,8 +1084,25 @@ class Runner:
         hdfs_url = self._gen_hdfs_url('pingcap/demo/{}'.format(changefeed_id))
         self.args.hdfs_url = hdfs_url
         self.make_hdfs_dir()
-        job_ids = self.create_flink_job(
-            self.host, etl_uid, table_id, db, table_name, kafka_topic, csv_output_path, hdfs_url)
+
+        self.create_flink_job(
+            self.host, etl_uid, table_id, kafka_topic, csv_output_path, hdfs_url, load_file(self.args.sink_task_flink_schema_path))
+        job_ids = []
+        flink_jobs = self._get_flink_jobs()
+        for jid, job in flink_jobs.items():
+            jname = job['name']
+            if jname == etl_uid:
+                job_ids.append(jid)
+
+        if job_ids:
+            logger.info(
+                "success to run flink sql by flink client, job_ids: `{}`".format(job_ids))
+            logger.info(
+                "please open flink jobmanager web site `{}` for details".format(self.flink_base_url))
+        else:
+            logger.error(
+                "failed to run flink sql by flink client")
+            exit(-1)
 
         self.save_etl(
             etl_uid,

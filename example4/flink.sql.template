@@ -22,24 +22,22 @@ CREATE TABLE demo_hudi.t4_agg(
   'table.type' = 'MERGE_ON_READ'
 );
 
-create table demo_hudi.t4_base
+create table demo_flink.t4_base (a int PRIMARY KEY NOT ENFORCED, b int) with 
 (
-  a int PRIMARY KEY NOT ENFORCED, b int
-) WITH (
-  'connector' = 'hudi',
-  'path' = '${hdfs_address}/ori',
-  'table.type' = 'MERGE_ON_READ',
-  'read.streaming.enabled' = 'true',
-  'read.streaming.start-commit' = '0',
-  'read.streaming.check-interval' = '1000000000'
+  'connector'='kafka',
+  'topic'='${kafka_topic}_base',
+  'properties.bootstrap.servers'='${kafka_address}',
+  'properties.group.id'='pingcap-demo-group',
+  'format'='canal-json',
+  'scan.startup.mode'='earliest-offset'
 );
 
 SET table.dml-sync=true;
 
-insert into demo_hudi.t4_base (select * from demo_flink.t4_file);
+insert into demo_flink.t4_base (select * from demo_flink.t4_file);
 
 RESET table.dml-sync;
 
-insert into demo_hudi.t4_agg (c,d) (select b, sum(a) from (SELECT * from demo_hudi.t4_base
-    UNION ALL
-    SELECT * from demo_flink.t4_inc) group by b);
+insert into demo_flink.t4_base (select * from demo_flink.t4_inc);
+
+insert into demo_hudi.t4_agg (c,d) (select b, sum(a) from (SELECT * from demo_flink.t4_base) group by b);
