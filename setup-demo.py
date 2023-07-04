@@ -537,7 +537,7 @@ class Runner:
             pass
 
     def show_env_vars_info(self):
-        std_logger.info(self.env_vars)
+        std_logger.info(json.dumps(self.env_vars, indent=4))
 
     def down_hudi_flink(self):
         logger.info("start to down hudi flink docker compose")
