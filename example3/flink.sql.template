@@ -19,7 +19,7 @@ CREATE TABLE demo_hudi.t3(
   'path' = '${hdfs_address}',
   'table.type' = 'MERGE_ON_READ'
 );
-create table demo_flink.t3_qeueu(a int PRIMARY KEY, b int) with (
+create table demo_flink.t3_queue(a int PRIMARY KEY, b int) with (
   'connector'='kafka',
   'topic'='${kafka_topic}-base', 
   'properties.bootstrap.servers'='${kafka_address}',
@@ -38,9 +38,9 @@ create table demo_flink.t3_inc(a int PRIMARY KEY, b int) with (
 
 SET table.dml-sync=true;
 
-INSERT INTO demo_flink.t3_qeueu (select * from demo_flink.t3_file);
+INSERT INTO demo_flink.t3_queue (select * from demo_flink.t3_file);
 
 RESET table.dml-sync;
 
-INSERT INTO demo_flink.t3_qeueu (select * from demo_flink.t3_inc);
-INSERT INTO demo_hudi.t3 (select * from demo_flink.t3_qeueu);
+INSERT INTO demo_flink.t3_queue (select * from demo_flink.t3_inc);
+INSERT INTO demo_hudi.t3 (select * from demo_flink.t3_queue);
