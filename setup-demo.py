@@ -350,12 +350,10 @@ class Runner:
             for tid, table in job.items():
                 logger.info("start to clean data for table `{}`".format(tid))
                 x = table.get(ticdc_changefeed_name)
-                kafka_topic_to_remove = []
                 if x is not None:
                     for a in x:
                         self.args.cdc_changefeed_id = a
                         self.rm_ticdc_job()
-                        kafka_topic_to_remove.append(a)
                 x = table.get(flink_job_name)
                 if x is not None:
                     for a in x:
@@ -366,8 +364,10 @@ class Runner:
                     for a in x:
                         self.args.hdfs_url = a
                         self.rm_hdfs_dir()
-                for a in kafka_topic_to_remove:
-                    self.args.kafka_topic = a
+                kafka_topic_to_remove = [topic for topic in self._list_kafka_topics(
+                ) if topic.startswith(self.args.etl_job_id)]
+                for topic in kafka_topic_to_remove:
+                    self.args.kafka_topic = topic
                     self.rm_kafka_topic()
             self.rm_etl(self.args.etl_job_id)
         else:
@@ -858,10 +858,10 @@ class Runner:
     def list_flink_jobs(self):
         flink_jobs = self._get_flink_jobs()
         logger.info("flink jobs:\n{}\n".format(flink_jobs))
-        data = [self._get_flink_job_checkpoint(
-            jid) for jid in flink_jobs.keys()]
-        logger.info(
-            "flink jobs checkpoint info:\n{}\n".format(json.dumps(data)))
+        # data = [self._get_flink_job_checkpoint(
+        #     jid) for jid in flink_jobs.keys()]
+        # logger.info(
+        #     "flink jobs checkpoint info:\n{}\n".format(json.dumps(data)))
 
     def _init_hdfs_url(self):
         assert self.args.hdfs_url

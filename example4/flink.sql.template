@@ -25,7 +25,7 @@ CREATE TABLE demo_hudi.t4_agg(
 create table demo_flink.t4_base (a int PRIMARY KEY NOT ENFORCED, b int) with 
 (
   'connector'='kafka',
-  'topic'='${kafka_topic}_base',
+  'topic'='${kafka_topic}-base',
   'properties.bootstrap.servers'='${kafka_address}',
   'properties.group.id'='pingcap-demo-group',
   'format'='canal-json',
