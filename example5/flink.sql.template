@@ -1,0 +1,57 @@
+set execution.checkpointing.interval = 2sec;
+create database demo_flink;
+create database demo_hudi;
+
+create table demo_flink.t5_inc (a int PRIMARY KEY NOT ENFORCED, b int) with('connector'='kafka', 'topic'='${kafka_topic}', 'properties.bootstrap.servers'='${kafka_address}', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='earliest-offset');
+create table demo_flink.t5_file
+(
+  a int PRIMARY KEY NOT ENFORCED, b int
+)
+with (
+  'connector'='filesystem',
+  'path' = 'file://${csv_file_path}',
+  'format'='csv'
+);
+
+create table demo_flink.t5 (
+  a int PRIMARY KEY NOT ENFORCED,
+  b int,
+  `proctime` as PROCTIME()
+)
+with 
+(
+  'connector'='kafka',
+  'topic'='${kafka_topic}_base',
+  'properties.bootstrap.servers'='${kafka_address}',
+  'properties.group.id'='pingcap-demo-group',
+  'format'='canal-json',
+  'scan.startup.mode'='earliest-offset'
+);
+
+create table demo_flink.t5_build (b int PRIMARY KEY NOT ENFORCED, c int) with 
+(
+  'connector' = 'jdbc',
+  'url' = 'jdbc:mysql://${tidb_address}/demo',
+  'table-name' = 't5_build',
+  'username' = 'root',
+  'password' = ''
+);
+
+CREATE TABLE demo_hudi.t5_join(
+  b INT PRIMARY KEY NOT ENFORCED,
+  v BIGINT
+) WITH (
+  'connector' = 'hudi',
+  'path' = '${hdfs_address}/join',
+  'table.type' = 'MERGE_ON_READ'
+);
+
+insert into demo_hudi.t5_join (select build.b, sum(c) from demo_flink.t5 as prob inner join demo_flink.t5_build FOR SYSTEM_TIME AS OF prob.proctime as build on prob.b = build.b group by build.b);
+
+SET table.dml-sync=true;
+
+insert into demo_flink.t5 (select * from demo_flink.t5_file);
+
+RESET table.dml-sync;
+
+insert into demo_flink.t5 (select * from demo_flink.t5_inc);
