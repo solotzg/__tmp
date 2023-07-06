@@ -401,10 +401,10 @@ class Runner:
             self.rm_ticdc_job()
         flink_jobs = self._get_flink_jobs(status_match={})
         for fid, job in flink_jobs.items():
-            if job.get('state') not in {"CANCELED", "FINISHED", "CANCELING", }:
+            if job.get('state') not in {"CANCELED", "FINISHED", "CANCELING", "FAILED", }:
                 self.args.flink_job_id = fid
                 self.rm_flink_job()
-        self.args.hdfs_url = 'pingcap/demo'
+        self.args.hdfs_url = 'pingcap/demo/*'
         self.rm_hdfs_dir()
         topics = self._list_kafka_topics()
         for topic in topics:
@@ -976,6 +976,7 @@ class Runner:
             "kafka_topic": topic,
             "hdfs_address": hdfs_url,
             "csv_file_path": csv_output_path,
+            "tidb_address": '{}:{}'.format(self.host, self.env_vars[tidb_port_name])
         }
         logger.debug("set basic config: {}".format(var_map))
         flink_sql_file = '.tmp.flink.sink-{}-{}.sql'.format(

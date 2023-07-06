@@ -22,7 +22,7 @@ CREATE TABLE demo_hudi.t4_agg(
   'table.type' = 'MERGE_ON_READ'
 );
 
-create table demo_flink.t4_base (a int PRIMARY KEY NOT ENFORCED, b int) with 
+create table demo_flink.t4 (a int PRIMARY KEY NOT ENFORCED, b int) with 
 (
   'connector'='kafka',
   'topic'='${kafka_topic}_base',
@@ -32,12 +32,12 @@ create table demo_flink.t4_base (a int PRIMARY KEY NOT ENFORCED, b int) with
   'scan.startup.mode'='earliest-offset'
 );
 
-insert into demo_hudi.t4_agg (c,d) (select b, sum(a) from (SELECT * from demo_flink.t4_base) group by b);
+insert into demo_hudi.t4_agg (c,d) (select b, sum(a) from (SELECT * from demo_flink.t4) group by b);
 
 SET table.dml-sync=true;
 
-insert into demo_flink.t4_base (select * from demo_flink.t4_file);
+insert into demo_flink.t4 (select * from demo_flink.t4_file);
 
 RESET table.dml-sync;
 
-insert into demo_flink.t4_base (select * from demo_flink.t4_inc);
+insert into demo_flink.t4 (select * from demo_flink.t4_inc);
