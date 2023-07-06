@@ -849,7 +849,6 @@ class Runner:
                                for n in ['name', 'state']}
             assert fid == job_info['jid']
 
-        std_logger.info(flink_jobs)
         return flink_jobs
 
     def _get_flink_job_checkpoint(self, jid):
@@ -860,7 +859,9 @@ class Runner:
 
     def list_flink_jobs(self):
         flink_jobs = self._get_flink_jobs(only_running=False)
-        logger.info("flink jobs:\n{}\n".format(flink_jobs))
+        logger.info("flink running jobs:\n{}\n".format(
+            {k: v for k, v in flink_jobs.items() if v.get('state', '').lower() == 'running'}))
+        logger.debug("flink all jobs:\n{}\n".format(flink_jobs))
         # data = [self._get_flink_job_checkpoint(
         #     jid) for jid in flink_jobs.keys()]
         # logger.info(
