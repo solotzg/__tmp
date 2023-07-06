@@ -21,7 +21,7 @@ CREATE TABLE demo_hudi.t3(
 );
 create table demo_flink.t3_queue(a int PRIMARY KEY, b int) with (
   'connector'='kafka',
-  'topic'='${kafka_topic}-base', 
+  'topic'='${kafka_topic}_base', 
   'properties.bootstrap.servers'='${kafka_address}',
   'properties.group.id'='pingcap-demo-group',
   'format'='canal-json',
@@ -36,6 +36,8 @@ create table demo_flink.t3_inc(a int PRIMARY KEY, b int) with (
   'scan.startup.mode'='earliest-offset'
 );
 
+INSERT INTO demo_hudi.t3 (select * from demo_flink.t3_queue);
+
 SET table.dml-sync=true;
 
 INSERT INTO demo_flink.t3_queue (select * from demo_flink.t3_file);
@@ -43,4 +45,3 @@ INSERT INTO demo_flink.t3_queue (select * from demo_flink.t3_file);
 RESET table.dml-sync;
 
 INSERT INTO demo_flink.t3_queue (select * from demo_flink.t3_inc);
-INSERT INTO demo_hudi.t3 (select * from demo_flink.t3_queue);

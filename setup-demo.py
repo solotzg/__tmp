@@ -340,6 +340,10 @@ class Runner:
         out = [e for e in out.split('\n') if e]
         return out
 
+    def _create_kafka_topics(self, topic):
+        self._run_kafka_topic(
+            '--create --topic={} --partitions=1 --replication-factor=1'.format(topic))
+
     def rm_etl_job(self):
         assert self.args.etl_job_id
         etl_jobs = self.env_vars.get(etl_jobs_name, {})
@@ -955,6 +959,8 @@ class Runner:
 
         logger.info(
             "create table sink job by ticdc client:\n{}\n".format(ticdc_data))
+
+        self._create_kafka_topics('{}_base'.format(topic))
 
         return topic, changefeed_id, ticdc_data
 
