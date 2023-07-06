@@ -395,7 +395,7 @@ class Runner:
         for cdc_changefeed_id in ticdc_job_ids:
             self.args.cdc_changefeed_id = cdc_changefeed_id
             self.rm_ticdc_job()
-        flink_jobs = self._get_flink_jobs()
+        flink_jobs = self._get_flink_jobs(only_running=False)
         for fid, _ in flink_jobs.items():
             self.args.flink_job_id = fid
             self.rm_flink_job()
@@ -831,12 +831,15 @@ class Runner:
             return
         logger.info("\n{}\n".format(out))
 
-    def _get_flink_jobs(self) -> dict:
+    def _get_flink_jobs(self, only_running=True) -> dict:
         import requests
         url = '{}/jobs'.format(self.flink_base_url)
         flink_running_id = []
         for job in requests.get(url).json()['jobs']:
-            if job['status'].lower() == 'running':
+            if only_running:
+                if job['status'].lower() == 'running':
+                    flink_running_id.append(job['id'])
+            else:
                 flink_running_id.append(job['id'])
         flink_jobs = {}
         for fid in flink_running_id:
@@ -856,7 +859,7 @@ class Runner:
         return res
 
     def list_flink_jobs(self):
-        flink_jobs = self._get_flink_jobs()
+        flink_jobs = self._get_flink_jobs(only_running=False)
         logger.info("flink jobs:\n{}\n".format(flink_jobs))
         # data = [self._get_flink_job_checkpoint(
         #     jid) for jid in flink_jobs.keys()]
