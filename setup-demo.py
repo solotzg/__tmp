@@ -401,7 +401,7 @@ class Runner:
             self.rm_ticdc_job()
         flink_jobs = self._get_flink_jobs(status_match={})
         for fid, job in flink_jobs.items():
-            if job.get('state') not in {"CANCELED", "FINISHED"}:
+            if job.get('state') not in {"CANCELED", "FINISHED", "CANCELING", }:
                 self.args.flink_job_id = fid
                 self.rm_flink_job()
         self.args.hdfs_url = 'pingcap/demo'
@@ -826,15 +826,18 @@ class Runner:
         return cmd
 
     def rm_flink_job(self):
+        import requests
         assert self.args.flink_job_id
-        cmd = self._gen_flink_exec('cancel {}'.format(self.args.flink_job_id))
-        out, err, ret = run_cmd(
-            cmd, False)
-        if ret:
+        url = '{}/jobs/{}'.format(self.flink_base_url, self.args.flink_job_id)
+        logger.info('Try to cancel flink job `{}`: path url `{}`'.format(
+            self.args.flink_job_id, url))
+        resp = requests.patch(url)
+        if resp.status_code != 202:
             logger.error(
-                "failed to cancel job {} in flink.\nout:\n{}\nerror:\n{}\n".format(self.args.flink_job_id, out, err, ))
+                "failed to cancel job `{}` in flink.\nError:\n{}\n".format(self.args.flink_job_id, resp.json()))
             return
-        logger.info("\n{}\n".format(out))
+        logger.info('Success to cancel flink job `{}`'.format(
+            self.args.flink_job_id, ))
 
     def _get_flink_jobs(self, status_match={'running'}) -> dict:
         import requests
