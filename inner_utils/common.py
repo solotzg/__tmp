@@ -17,12 +17,7 @@ def wrap_run_time(func):
     return wrap_func
 
 
-@wrap_run_time
-def run_cmd(cmd, show_stdout=False, env=None):
-    if env:
-        logger.debug("\nRUN CMD:\n\t{}\nENV:\n\t{}\n".format(cmd, env))
-    else:
-        logger.debug("RUN CMD:\n\t{}\n".format(cmd))
+def run_cmd_no_debug_info(cmd, show_stdout=False, env=None, no_error=False):
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env)
     if show_stdout:
@@ -33,11 +28,25 @@ def run_cmd(cmd, show_stdout=False, env=None):
         _, stderr = proc.communicate()
     else:
         stdout, stderr = proc.communicate()
-    return stdout.decode('utf-8'), stderr.decode('utf-8'), proc.returncode
+
+    stdout, stderr, ret = stdout.decode(
+        'utf-8'), stderr.decode('utf-8'), proc.returncode
+
+    if no_error:
+        if ret:
+            logger.error(
+                "Failed to run command `{}`.\n\nError:\n{}\nSTD Out:\n{}\n".format(cmd, stderr, stdout))
+            exit(-1)
+    return stdout, stderr, ret
 
 
-def run_cmd_no_msg(cmd, env=None):
-    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, env=env)
-    stdout, stderr = proc.communicate()
-    return stdout.decode('utf-8'), stderr.decode('utf-8'), proc.returncode
+@wrap_run_time
+def run_cmd(cmd, show_stdout=False, env=None, *args, **argv):
+    msg = ("\nRUN CMD:\n\t{}\nENV:\n\t{}\n".format(cmd, env)
+           ) if env else ("RUN CMD:\n\t{}\n".format(cmd))
+    logger.debug(msg)
+
+    stdout, stderr, ret = run_cmd_no_debug_info(
+        cmd, show_stdout=show_stdout, env=env, *args, **argv)
+
+    return stdout, stderr, ret

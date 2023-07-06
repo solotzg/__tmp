@@ -6,7 +6,6 @@ import time
 from threading import Thread
 import threading
 
-from inner_utils.common import run_cmd_no_msg
 from inner_utils import *
 
 
@@ -20,8 +19,7 @@ def sink_table_info_error():
     time.sleep(sleep_time)
     logger.info('finish to sleep {}s'.format(sleep_time))
     cmd = './setup-demo.py --cmd sink_task --sink_task_desc="etl4.4.demo.t4" --sink_task_flink_schema_path ./example4/flink.sql.template'
-    _, _, ret = run_cmd(cmd, True)
-    assert not ret
+    run_cmd(cmd, show_stdout=True, no_error=True)
     logger.info('end thread `{}`'.format(threading.get_ident()))
 
 
@@ -31,23 +29,23 @@ def run():
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "drop table IF EXISTS demo.t4" '.format(
         tidb_port,
         SCRIPT_DIR)
-    run_cmd(cmd)
+    run_cmd(cmd, no_error=True)
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "drop table IF EXISTS demo.t4_tmp" '.format(
         tidb_port,
         SCRIPT_DIR)
-    run_cmd(cmd)
+    run_cmd(cmd, no_error=True)
     cmd = 'mysql -h 0.0.0.0 -P {} -u root < {}/example4/tidb.sql'.format(
         tidb_port,
         SCRIPT_DIR)
-    run_cmd(cmd)
+    run_cmd(cmd, no_error=True)
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "create table demo.t4_tmp(a int PRIMARY KEY)"'.format(
         tidb_port,
         SCRIPT_DIR)
-    run_cmd(cmd)
+    run_cmd(cmd, no_error=True)
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "insert into demo.t4_tmp values(RAND()*100)"'.format(
         tidb_port,
         SCRIPT_DIR)
-    run_cmd(cmd)
+    run_cmd(cmd, no_error=True)
     thread_1 = Thread(target=sink_table_info_error,
                       daemon=True, name='flink-hudi-bench')
     thread_1.start()
@@ -57,24 +55,21 @@ def run():
     for _ in range(loop_cnt):
         cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "insert into demo.t4 (select max(a)+1,max(a)+1 from demo.t4)"'.format(
             tidb_port)
-        _, _, ret = run_cmd_no_msg(cmd)
-        assert not ret
+        run_cmd_no_debug_info(cmd, no_error=True, )
     loop_cnt = 2000
     logger.info(
         'start to exec with sql `update demo.t4_tmp set a=a+1; update demo.t4 set b=(select a from demo.t4_tmp) where a > 3;`, loop {} times'.format(loop_cnt))
     for _ in range(loop_cnt):
         cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "update demo.t4_tmp set a=a+1; update demo.t4 set b=(select a from demo.t4_tmp limit 1) where a > 3;"'.format(
             tidb_port)
-        _, _, ret = run_cmd_no_msg(cmd)
-        assert not ret
+        run_cmd_no_debug_info(cmd, no_error=True, )
 
     logger.info(
         'start to delete a few records')
 
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "delete from demo.t4 where a < 3 "'.format(
         tidb_port)
-    _, _, ret = run_cmd(cmd)
-    assert not ret
+    run_cmd(cmd, no_error=True)
 
     logger.info(
         'finished to exec sql')
@@ -104,11 +99,7 @@ select c as demo_hudi_t4_group_key, d as demo_hudi_t4_group_res from demo_hudi.t
     cmd = "{}/run-flink-bash.sh '/pingcap/demo/flink-sql-client.sh -f /pingcap/demo/{}'".format(
         SCRIPT_DIR,
         sql_file_name)
-    hudi_out, err, ret = run_cmd(cmd,)
-    if ret:
-        print(err)
-        print(hudi_out)
-        exit(-1)
+    hudi_out, _, _ = run_cmd(cmd, no_error=True)
 
     try:
         hudi_res = [[t for t in line.split(' ') if t]
@@ -127,8 +118,7 @@ select c as demo_hudi_t4_group_key, d as demo_hudi_t4_group_res from demo_hudi.t
     cmd = 'mysql -h 0.0.0.0 -P {} -u root -e "select b as demo_hudi_t4_group_key, sum(a) as demo_hudi_t4_group_res from demo.t4 group by b" '.format(
         tidb_port,
         SCRIPT_DIR)
-    tidb_out, _, ret = run_cmd(cmd, False)
-    assert not ret
+    tidb_out, _, _ = run_cmd(cmd, show_stdout=False, no_error=True)
     tidb_res = [[t for t in line.split(' ') if t]
                 for line in tidb_out.replace('\t', ' ').strip().split('\n')]
     assert tidb_res[0] == ['demo_hudi_t4_group_key', 'demo_hudi_t4_group_res']
@@ -144,7 +134,9 @@ def main():
     try:
         run()
         run_cmd(
-            '{}/setup-demo.py --cmd rm_etl_job --etl_job_id etl4'.format(SCRIPT_DIR))
+            '{}/setup-demo.py --cmd rm_etl_job --etl_job_id etl4'.format(
+                SCRIPT_DIR),
+            no_error=True)
     except Exception as e:
         logger.exception(e)
         logger.warning(

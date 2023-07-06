@@ -395,10 +395,11 @@ class Runner:
         for cdc_changefeed_id in ticdc_job_ids:
             self.args.cdc_changefeed_id = cdc_changefeed_id
             self.rm_ticdc_job()
-        flink_jobs = self._get_flink_jobs(only_running=False)
-        for fid, _ in flink_jobs.items():
-            self.args.flink_job_id = fid
-            self.rm_flink_job()
+        flink_jobs = self._get_flink_jobs(status_match={})
+        for fid, job in flink_jobs.items():
+            if job.get('state') not in {"CANCELED", "FINISHED"}:
+                self.args.flink_job_id = fid
+                self.rm_flink_job()
         self.args.hdfs_url = 'pingcap/demo'
         self.rm_hdfs_dir()
         topics = self._list_kafka_topics()
@@ -441,7 +442,7 @@ class Runner:
     def _load_changefeed_info(self, changefeed_id,):
         details = None
         out, err, ret = self._run_ticdc_cmd(
-            'query --changefeed-id {}'.format(changefeed_id), cmd_exec=run_cmd_no_msg)
+            'query --changefeed-id {}'.format(changefeed_id), cmd_exec=run_cmd_no_debug_info)
         if not ret:
             try:
                 details = json.loads(out.strip())
@@ -831,13 +832,13 @@ class Runner:
             return
         logger.info("\n{}\n".format(out))
 
-    def _get_flink_jobs(self, only_running=True) -> dict:
+    def _get_flink_jobs(self, status_match={'running'}) -> dict:
         import requests
         url = '{}/jobs'.format(self.flink_base_url)
         flink_running_id = []
         for job in requests.get(url).json()['jobs']:
-            if only_running:
-                if job['status'].lower() == 'running':
+            if status_match:
+                if job['status'].lower() in status_match:
                     flink_running_id.append(job['id'])
             else:
                 flink_running_id.append(job['id'])
@@ -858,14 +859,11 @@ class Runner:
         return res
 
     def list_flink_jobs(self):
-        flink_jobs = self._get_flink_jobs(only_running=False)
-        logger.info("flink running jobs:\n{}\n".format(
-            {k: v for k, v in flink_jobs.items() if v.get('state', '').lower() == 'running'}))
+        flink_jobs = self._get_flink_jobs(status_match={})
+        running = {jid: job for jid, job in flink_jobs.items() if job.get(
+            'state', '').lower() == 'running'}
+        logger.info("flink running jobs:\n{}\n".format(running))
         logger.debug("flink all jobs:\n{}\n".format(flink_jobs))
-        # data = [self._get_flink_job_checkpoint(
-        #     jid) for jid in flink_jobs.keys()]
-        # logger.info(
-        #     "flink jobs checkpoint info:\n{}\n".format(json.dumps(data)))
 
     def _init_hdfs_url(self):
         assert self.args.hdfs_url

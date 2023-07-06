@@ -8,5 +8,5 @@ __all__ = [
     "std_logger",
     "wrap_run_time",
     "run_cmd",
-    "run_cmd_no_msg",
+    "run_cmd_no_debug_info",
 ]
