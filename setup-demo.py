@@ -306,6 +306,9 @@ class Runner:
         parser.add_argument(
             '--kafka_topic', help="kafka topic to be removed"
         )
+        parser.add_argument(
+            '--tidb_address', help="external tidb address"
+        )
         cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
             '--cmd', help='command enum', choices=cmd_choices, required=True)
@@ -415,8 +418,10 @@ class Runner:
 
     def parse_tso(self):
         assert self.args.tso
-        cmd = "mysql -h 0.0.0.0 -P {} -u root -e 'SELECT TIDB_PARSE_TSO({})' ".format(
-            self.env_vars[tidb_port_name], self.args.tso)
+
+        tidb_host, tidb_port = self.tidb_address.split(':')
+        cmd = "mysql -h {} -P {} -u root -e 'SELECT TIDB_PARSE_TSO({})' ".format(
+            tidb_host, tidb_port, self.args.tso)
         out, err, ret = run_cmd(cmd)
         if ret:
             logger.error("tidb error:\n{}".format(err))
@@ -920,9 +925,16 @@ class Runner:
             return
         logger.info("\n{}\n".format(out))
 
+    @property
+    def tidb_address(self):
+        if self.args.tidb_address:
+            return self.args.tidb_address.strip()
+        return '{}:{}'.format(self.host, self.env_vars[tidb_port_name])
+
     def sink_task_check_tidb_schema(self, db, table_name):
+        tidb_host, tidb_port = self.tidb_address.split(':')
         out, err, ret = run_cmd(
-            "mysql -h 0.0.0.0 -P {} -u root -e 'desc {}.{}' ".format(self.env_vars[tidb_port_name], db, table_name))
+            "mysql -h {} -P {} -u root -e 'desc {}.{}' ".format(tidb_host, tidb_port, db, table_name))
         if ret:
             logger.error("tidb error:\n{}".format(err))
             exit(-1)
@@ -976,7 +988,7 @@ class Runner:
             "kafka_topic": topic,
             "hdfs_address": hdfs_url,
             "csv_file_path": csv_output_path,
-            "tidb_address": '{}:{}'.format(self.host, self.env_vars[tidb_port_name])
+            "tidb_address": self.tidb_address,
         }
         logger.debug("set basic config: {}".format(var_map))
         flink_sql_file = '.tmp.flink.sink-{}-{}.sql'.format(
@@ -1029,8 +1041,9 @@ class Runner:
             dumpl_to_path = self.args.dumpling_tar_path
             dumpl_to_path_real = dumpl_to_path
 
-        args = '-u root -P {} -h {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
-            self.env_vars[tidb_port_name], self.host, dumpl_to_path, start_ts, db, table_name, db, table_name)
+        tidb_host, tidb_port = self.tidb_address.split(':')
+        args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
+            tidb_host, tidb_port, dumpl_to_path, start_ts, db, table_name, db, table_name)
         cmd_env = {}
         if self.args.dumpling_bin_path:
             assert self.args.dumpling_tar_path
