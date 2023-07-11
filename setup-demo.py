@@ -53,6 +53,8 @@ HUDI_FLINK_BUNDLE_NAME = HUDI_FLINK_BUNDLE_NAME_FMT.format(
     FLINK_VERSION, HUDI_VERSION)
 KAFKA_VERSION = "2.4.0"
 KAFKA_VERSION_NAME = "KAFKA_VERSION"
+FLINK_JDBC_NAME = 'flink-connector-jdbc_2.11-1.13.6.jar'
+FLINK_MYSQL_NAME = 'mysql-connector-java-8.0.20.jar'
 
 
 def get_host_name():
@@ -614,6 +616,20 @@ class Runner:
         if not os.path.exists(os.path.join(env_libs, HUDI_FLINK_BUNDLE_NAME)):
             out, err, status = run_cmd("cd {} && wget {}".format(
                 env_libs, hudi_flink_bundle_url))
+            if status:
+                err_msg.append((out, err))
+
+        if not os.path.exists(os.path.join(env_libs, FLINK_JDBC_NAME)):
+            out, err, status = run_cmd("cd {} && wget {}".format(
+                env_libs, "{}/{}".format(
+                    DOWNLOAD_URL, FLINK_JDBC_NAME)))
+            if status:
+                err_msg.append((out, err))
+
+        if not os.path.exists(os.path.join(env_libs, FLINK_MYSQL_NAME)):
+            out, err, status = run_cmd("cd {} && wget {}".format(
+                env_libs, "{}/{}".format(
+                    DOWNLOAD_URL, FLINK_MYSQL_NAME)))
             if status:
                 err_msg.append((out, err))
 
