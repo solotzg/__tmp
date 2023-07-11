@@ -432,8 +432,11 @@ class Runner:
             logger.info('\n{}'.format(out))
 
     def _run_ticdc_cmd(self, ticdc_args, cmd_exec=run_cmd, *args, **argv):
-        cdc_server = "http://{}:{}".format(self.host,
-                                           self.env_vars[ticdc_port_name])
+        if self.args.ticdc_addr:
+            cdc_server = "http://{}".format(self.args.ticdc_addr)
+        else:
+            cdc_server = "http://{}:{}".format(self.host,
+                                               self.env_vars[ticdc_port_name])
         ticdc_args = 'cli changefeed --server={} {}'.format(
             cdc_server, ticdc_args
         )
