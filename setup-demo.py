@@ -532,6 +532,8 @@ class Runner:
                 logger.info("remove `{}`".format(p))
                 if os.path.exists(p):
                     os.remove(p)
+        cmd = "rm -rf {}/*.jar".format(self.env_libs)
+        run_cmd(cmd)
 
     @property
     def tidb_running(self):
@@ -592,7 +594,7 @@ class Runner:
         hadoop_tar_name = '{}.tar.gz'.format(HADOOP_NAME)
         hadoop_url = "{}/{}".format(DOWNLOAD_URL, hadoop_tar_name)
 
-        flink_sql_connector_name = 'flink-sql-connector-kafka_2.12-1.13.6.jar'
+        flink_sql_connector_name = 'flink-sql-connector-kafka_2.11-1.13.6.jar'
         flink_sql_connector_url = "{}/{}".format(
             DOWNLOAD_URL, flink_sql_connector_name)
         hudi_flink_bundle_url = "{}/{}".format(
