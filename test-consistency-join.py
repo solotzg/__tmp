@@ -12,7 +12,7 @@ from inner_utils import *
 SCRIPT_DIR = os.path.realpath(os.path.join(__file__, os.pardir))
 
 
-def sink_table_info_error():
+def sink_table_info_no_error():
     logger.info('start thread `{}`'.format(threading.get_ident()))
     sleep_time = 5
     logger.info('start to sleep {}s'.format(sleep_time))
@@ -38,7 +38,7 @@ def run():
         tidb_port,
         SCRIPT_DIR)
     run_cmd(cmd, no_error=True)
-    thread_1 = Thread(target=sink_table_info_error,
+    thread_1 = Thread(target=sink_table_info_no_error,
                       daemon=True, name='flink-hudi-bench')
     thread_1.start()
     loop_cnt = 2000
