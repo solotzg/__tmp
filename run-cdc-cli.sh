@@ -9,5 +9,5 @@ SCRIPT_PATH=$(
 if [[ -z "${CDC_BIN_PATH}" ]]; then
     docker compose -f ${SCRIPT_PATH}/.tmp.tidb-cluster.yml exec -T ticdc_server0 bash -c "/cdc $@"
 else
-    ${CDC_BIN_PATH} $@
+    ${CDC_BIN_PATH} "$@"
 fi
