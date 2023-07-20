@@ -1074,7 +1074,7 @@ class Runner:
             args = "'{}'".format(args)
 
         cmd = "{}/run-dumpling.sh {} ".format(SCRIPT_DIR, args, )
-        out, err, ret = run_cmd(cmd, False)
+        out, err, ret = run_cmd(cmd, False, env=cmd_env)
         if ret:
             logger.error("failed to dump table {}.{}, error:\n{}\nstdout:\n{}\n".format(
                 db, table_name, err, out))
