@@ -308,6 +308,9 @@ class Runner:
         parser.add_argument(
             '--tidb_address', help="external tidb address"
         )
+        parser.add_argument(
+            '--tidb_addr', help="external tidb address"
+        )
         cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
             '--cmd', help='command enum', choices=cmd_choices, required=True)
@@ -947,6 +950,8 @@ class Runner:
     def tidb_address(self):
         if self.args.tidb_address:
             return self.args.tidb_address.strip()
+        elif self.args.tidb_addr:
+            return self.args.tidb_addr.strip()
         return '{}:{}'.format(self.host, self.env_vars[tidb_port_name])
 
     def sink_task_check_tidb_schema(self, db, table_name):
