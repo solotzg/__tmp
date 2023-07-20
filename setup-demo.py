@@ -297,9 +297,6 @@ class Runner:
             '--dumpling_bin_path', help="dumpling binary local path"
         )
         parser.add_argument(
-            '--dumpling_tar_path', help="dir path to save dumped tidb table data"
-        )
-        parser.add_argument(
             '--flink_sql_client_path', help="path of flink sql client shell script"
         )
         parser.add_argument(
@@ -1054,20 +1051,14 @@ class Runner:
         dumpl_to_path_real = '{}/.tmp.demo/tidb/data/dumpling'.format(
             SCRIPT_DIR)
 
-        if self.args.dumpling_tar_path:
-            assert self.args.dumpling_bin_path
-            assert os.path.exists(self.args.dumpling_bin_path)
-            self.args.dumpling_bin_path = os.path.realpath(
-                self.args.dumpling_bin_path)
-            dumpl_to_path = self.args.dumpling_tar_path
-            dumpl_to_path_real = dumpl_to_path
+        if self.args.dumpling_bin_path:
+            dumpl_to_path = dumpl_to_path_real
 
         tidb_host, tidb_port = self.tidb_address.split(':')
         args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
             tidb_host, tidb_port, dumpl_to_path, start_ts, db, table_name, db, table_name)
         cmd_env = {}
         if self.args.dumpling_bin_path:
-            assert self.args.dumpling_tar_path
             assert os.path.exists(self.args.dumpling_bin_path)
             cmd_env['DUMPLING_BIN_PATH'] = self.args.dumpling_bin_path
         else:
@@ -1120,12 +1111,9 @@ class Runner:
         start_ts = ticdc_data['start_ts']
 
         csv_path = self._dump_tidb_table(start_ts, db, table_name)
-        if self.args.dumpling_tar_path:
-            csv_output_path = csv_path
-        else:
-            assert csv_path.startswith(SCRIPT_DIR)
-            csv_output_path = '/pingcap/demo/{}'.format(
-                csv_path[len(SCRIPT_DIR):])
+        assert csv_path.startswith(SCRIPT_DIR)
+        csv_output_path = '/pingcap/demo/{}'.format(
+            csv_path[len(SCRIPT_DIR):])
 
         hdfs_url = self._gen_hdfs_url('pingcap/demo/{}'.format(changefeed_id))
         self.args.hdfs_url = hdfs_url
