@@ -1058,6 +1058,7 @@ class Runner:
 
         if self.args.dumpling_bin_path:
             dumpl_to_path = dumpl_to_path_real
+            os.makedirs(dumpl_to_path)
 
         tidb_host, tidb_port = self.tidb_address.split(':')
         args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
@@ -1086,7 +1087,8 @@ class Runner:
     def _gen_hdfs_url(self, sub_path: str):
         if sub_path.startswith('/'):
             sub_path = sub_path.lstrip('/')
-        hdfs_addr = 'namenode:8020' if self.args.hdfs_addr is None else self.args.hdfs_addr
+        hdfs_addr = '{}:{}'.format(
+            self.host, self.env_vars['hdfs_port']) if self.args.hdfs_addr is None else self.args.hdfs_addr
         return "hdfs://{}/{}".format(hdfs_addr, sub_path)
 
     @property
