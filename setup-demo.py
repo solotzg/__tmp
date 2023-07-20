@@ -15,7 +15,7 @@ HUDI_START_PORT_OFFSET = 0
 kafka_port_name = 'kafka_port'
 flink_jobmanager_port_name = 'flink_jobmanager_port'
 HUDI_FLINK_PORT_NAME_SET = {"hadoop_web_port", "hdfs_port", "historyserver_port", "hiveserver_port",
-                            "spark_web_port", "spark_master_port", kafka_port_name, flink_jobmanager_port_name}
+                            "spark_web_port", "spark_master_port", kafka_port_name, flink_jobmanager_port_name, 'hadoop_datanode_port'}
 TIDB_START_PORT_OFFSET = len(HUDI_FLINK_PORT_NAME_SET) + HUDI_START_PORT_OFFSET
 ticdc_port_name = 'ticdc_port'
 tidb_port_name = 'tidb_port'

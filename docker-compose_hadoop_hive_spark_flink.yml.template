@@ -8,8 +8,8 @@ services:
     environment:
       - CLUSTER_NAME=hudi_hadoop284_hive232_spark244
     ports:
-      - "$hadoop_web_port:50070"
-      - "$hdfs_port:8020"
+      - "${hadoop_web_port}:50070"
+      - "${hdfs_port}:8020"
       # JVM debugging port (will be mapped to a random port on host)
       # - "5005"
     env_file:
@@ -24,14 +24,13 @@ services:
 
   datanode1:
     image: apachehudi/hudi-hadoop_2.8.4-datanode:latest
-    hostname: datanode1
     environment:
       - CLUSTER_NAME=hudi_hadoop284_hive232_spark244
     env_file:
       - ${HUDI_WS}/docker/compose/hadoop.env
-    # ports:
+    ports:
       # - "50075:50075"
-      # - "50010:50010"
+      - "${hadoop_datanode_port}:50010"
       # JVM debugging port (will be mapped to a random port on host)
       # - "5005"
     links:
