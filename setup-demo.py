@@ -465,6 +465,10 @@ class Runner:
                 logger.error(e)
                 logger.error(out)
                 logger.error(err)
+        else:
+            logger.error(out)
+            logger.error(err)
+
         return details
 
     def _list_ticdc_jobs(self):
