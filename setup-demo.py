@@ -440,9 +440,10 @@ class Runner:
         ticdc_args = 'cli changefeed --server={} {}'.format(
             cdc_server, ticdc_args
         )
-        cmd_env = {}
+        cmd_env = None
         if self.args.cdc_bin_path:
             assert os.path.exists(self.args.cdc_bin_path)
+            cmd_env = {}
             cmd_env[CDC_BIN_PATH] = self.args.cdc_bin_path
         else:
             ticdc_args = "'{}'".format(ticdc_args)
@@ -913,7 +914,7 @@ class Runner:
                 args,)
             cmd = '{}/run-flink-bash.sh {}'.format(
                 SCRIPT_DIR, args)
-        return run_cmd(cmd, False, env={})
+        return run_cmd(cmd, False, )
 
     def make_hdfs_dir(self):
         self._init_hdfs_url()
@@ -1063,9 +1064,10 @@ class Runner:
         tidb_host, tidb_port = self.tidb_address.split(':')
         args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
             tidb_host, tidb_port, dumpl_to_path, start_ts, db, table_name, db, table_name)
-        cmd_env = {}
+        cmd_env = None
         if self.args.dumpling_bin_path:
             assert os.path.exists(self.args.dumpling_bin_path)
+            cmd_env = {}
             cmd_env['DUMPLING_BIN_PATH'] = self.args.dumpling_bin_path
         else:
             args = "'{}'".format(args)
