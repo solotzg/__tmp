@@ -1063,7 +1063,8 @@ class Runner:
 
         if self.args.dumpling_bin_path:
             dumpl_to_path = dumpl_to_path_real
-            os.makedirs(dumpl_to_path)
+            if not os.path.exists(dumpl_to_path):
+                os.makedirs(dumpl_to_path)
 
         tidb_host, tidb_port = self.tidb_address.split(':')
         args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
