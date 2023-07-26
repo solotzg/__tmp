@@ -997,8 +997,9 @@ class Runner:
                 "failed to create table sink task by ticdc client\nerror:\n{}\nstdout:\n{}\n".format(err, out))
             exit(-1)
 
-        ticdc_data = self._load_changefeed_info(changefeed_id, )
-        assert ticdc_data is not None
+        ticdc_data = None
+        while ticdc_data is None:
+            ticdc_data = self._load_changefeed_info(changefeed_id)
 
         logger.info(
             "create table sink job by ticdc client:\n{}\n".format(ticdc_data))
