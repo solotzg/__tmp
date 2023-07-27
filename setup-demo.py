@@ -1067,6 +1067,13 @@ class Runner:
             if not os.path.exists(dumpl_to_path):
                 os.makedirs(dumpl_to_path)
 
+        csv_output_path = '{}/{}.{}.csv'.format(
+            dumpl_to_path_real,
+            db, table_name)
+
+        with open(csv_output_path, 'w') as _:
+            pass
+
         tidb_host, tidb_port = self.tidb_address.split(':')
         args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
             tidb_host, tidb_port, dumpl_to_path, start_ts, db, table_name, db, table_name)
@@ -1085,15 +1092,9 @@ class Runner:
                 db, table_name, err, out))
             exit(-1)
 
-        csv_output_path = '{}/{}.{}.csv'.format(
-            dumpl_to_path_real,
-            db, table_name)
         logger.info("success to dump table {}.{} to `{}`".format(
             db, table_name, csv_output_path, ))
 
-        if not os.path.exists(csv_output_path):
-            with open(csv_output_path, 'w') as _:
-                pass
         return csv_output_path
 
     def _gen_hdfs_url(self, sub_path: str):
