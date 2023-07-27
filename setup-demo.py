@@ -1090,6 +1090,10 @@ class Runner:
             db, table_name)
         logger.info("success to dump table {}.{} to `{}`".format(
             db, table_name, csv_output_path, ))
+
+        if not os.path.exists(csv_output_path):
+            with open(csv_output_path, 'w') as _:
+                pass
         return csv_output_path
 
     def _gen_hdfs_url(self, sub_path: str):
