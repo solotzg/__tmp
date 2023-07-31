@@ -1,4 +1,8 @@
 set execution.checkpointing.interval = 2sec;
+set state.backend = rocksdb;
+set state.checkpoints.dir = ${hdfs_address}/checkpoints;
+set state.savepoints.dir = ${hdfs_address}/savepoints;
+set state.backend.incremental = true;
 
 create database demo_flink;
 create table demo_flink.t2(a int PRIMARY KEY, b TIMESTAMP(3), c STRING) with('connector'='kafka', 'topic'='${kafka_topic}', 'properties.bootstrap.servers'='${kafka_address}', 'properties.group.id'='pingcap-demo-group', 'format'='canal-json', 'scan.startup.mode'='earliest-offset');

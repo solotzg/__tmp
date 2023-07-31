@@ -1,4 +1,9 @@
 set execution.checkpointing.interval = 2sec;
+set state.backend = rocksdb;
+set state.checkpoints.dir = ${hdfs_address}/checkpoints;
+set state.savepoints.dir = ${hdfs_address}/savepoints;
+set state.backend.incremental = true;
+
 create database demo_flink;
 create database demo_hudi;
 
