@@ -17,8 +17,6 @@ mkdir -p ${deploy_data_third_party}
 cd ${deploy_data_third_party}
 mkdir -p hadoop/dfs/name
 mkdir -p hadoop/dfs/data
-mkdir -p historyserver
-mkdir -p hive-metastore-postgresql
 mkdir -p kafka
 mkdir -p flink
 mkdir -p zookeeper
@@ -27,6 +25,3 @@ cd -
 chmod 777 -R ${deploy_data_dir}
 
 docker compose --verbose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} up -d 2>&1
-
-# sleep 15
-# docker compose -f ${SCRIPT_PATH}/${COMPOSE_FILE_NAME} exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh

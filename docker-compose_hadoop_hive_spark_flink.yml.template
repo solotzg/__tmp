@@ -35,7 +35,6 @@ services:
       # - "5005"
     links:
       - "namenode"
-      - "historyserver"
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://datanode1:50075" ]
       interval: 30s
@@ -45,114 +44,6 @@ services:
       - namenode
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/third_party/hadoop/dfs/data:/hadoop/dfs/data
-
-  historyserver:
-    image: apachehudi/hudi-hadoop_2.8.4-history:latest
-    hostname: historyserver
-    environment:
-      - CLUSTER_NAME=hudi_hadoop284_hive232_spark244
-    depends_on:
-      - "namenode"
-    links:
-      - "namenode"
-    ports:
-      - "$historyserver_port:8188"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://historyserver:8188" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    volumes:
-      - ${pingcap_demo_path}/.tmp.demo/third_party/historyserver:/hadoop/yarn/timeline
-
-  hive-metastore-postgresql:
-    image: bde2020/hive-metastore-postgresql:2.3.0
-    volumes:
-      - ${pingcap_demo_path}/.tmp.demo/third_party/hive-metastore-postgresql:/var/lib/postgresql/data
-    hostname: hive-metastore-postgresql
-
-  hivemetastore:
-    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3:latest
-    hostname: hivemetastore
-    links:
-      - "hive-metastore-postgresql"
-      - "namenode"
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    command: /opt/hive/bin/hive --service metastore
-    environment:
-      SERVICE_PRECONDITION: "namenode:50070 hive-metastore-postgresql:5432"
-    # ports:
-      # - "9083:9083"
-      # JVM debugging port (will be mapped to a random port on host)
-      # - "5005"
-    healthcheck:
-      test: [ "CMD", "nc", "-z", "hivemetastore", "9083" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    depends_on:
-      - "hive-metastore-postgresql"
-      - "namenode"
-
-  hiveserver:
-    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3:latest
-    hostname: hiveserver
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    environment:
-      SERVICE_PRECONDITION: "hivemetastore:9083"
-    #ports:
-      # - "$hiveserver_port:10000"
-      # JVM debugging port (will be mapped to a random port on host)
-      # - "5005"
-    depends_on:
-      - "hivemetastore"
-    links:
-      - "hivemetastore"
-      - "hive-metastore-postgresql"
-      - "namenode"
-    volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
-
-  sparkmaster:
-    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkmaster_2.4.4:latest
-    hostname: sparkmaster
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    ports:
-      - "$spark_web_port:8080"
-      # - "$spark_master_port:7077"
-      # JVM debugging port (will be mapped to a random port on host)
-      # - "5005"
-    environment:
-      - INIT_DAEMON_STEP=setup_spark
-    links:
-      - "hivemetastore"
-      - "hiveserver"
-      - "hive-metastore-postgresql"
-      - "namenode"
-
-  spark-worker-1:
-    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkworker_2.4.4:latest
-    hostname: spark-worker-1
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    depends_on:
-      - sparkmaster
-    # ports:
-      # - "8081:8081"
-      # JVM debugging port (will be mapped to a random port on host)
-      # - "5005"
-    environment:
-      - "SPARK_MASTER=spark://sparkmaster:7077"
-    links:
-      - "hivemetastore"
-      - "hiveserver"
-      - "hive-metastore-postgresql"
-      - "namenode"
 
   zookeeper:
     image: 'bitnami/zookeeper:3.4.12-r68'
@@ -179,26 +70,14 @@ services:
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/third_party/kafka:/bitnami
 
-  adhoc-1:
-    image: apachehudi/hudi-hadoop_2.8.4-hive_2.3.3-sparkadhoc_2.4.4:latest
-    hostname: adhoc-1
-    env_file:
-      - ${HUDI_WS}/docker/compose/hadoop.env
-    depends_on:
-      - sparkmaster
-    # ports:
-      # - '4040:4040'
-      # JVM debugging port (mapped to 5006 on the host)
-      # - "5006:5005"
-    environment:
-      - "SPARK_MASTER=spark://sparkmaster:7077"
-    links:
-      - "hivemetastore"
-      - "hiveserver"
-      - "hive-metastore-postgresql"
-      - "namenode"
+  minio:
+    image: minio/minio
+    ports:
+      - "${minio_port}:9000"
+      - "${minio_web_port}:9001"
     volumes:
-      - ${HUDI_WS}:/var/hoodie/ws
+      - ${pingcap_demo_path}/.tmp.demo/third_party/minio_storage:/data
+    command: server --console-address ":9001" /data
 
   jobmanager:
     image: flink:${FLINK_VERSION}
@@ -214,6 +93,10 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
         jobmanager.memory.process.size: 6048m
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin
     restart: on-failure
 
   taskmanager:
@@ -232,6 +115,10 @@ services:
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 20
         taskmanager.memory.process.size: 6048m
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin
     restart: on-failure
 
   sql-client:
@@ -251,4 +138,8 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
         rest.address: jobmanager
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin
 

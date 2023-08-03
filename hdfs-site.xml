@@ -17,16 +17,58 @@
 <!-- Put site-specific property overrides in this file. -->
 
 <configuration>
+  <property>
+    <name>dfs.namenode.rpc-bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+  <property>
+    <name>dfs.namenode.servicerpc-bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+  <property>
+    <name>dfs.namenode.http-bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+  <property>
+    <name>dfs.namenode.https-bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+  <property>
+    <name>dfs.client.use.datanode.hostname</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>dfs.datanode.use.datanode.hostname</name>
+    <value>true</value>
+  </property>
 
-<property><name>dfs.namenode.name.dir</name><value>file:///hadoop/dfs/name</value></property>
-<property><name>dfs.namenode.rpc-bind-host</name><value>0.0.0.0</value></property>
-<property><name>dfs.namenode.servicerpc-bind-host</name><value>0.0.0.0</value></property>
-<property><name>dfs.namenode.http-bind-host</name><value>0.0.0.0</value></property>
-<property><name>dfs.namenode.https-bind-host</name><value>0.0.0.0</value></property>
-<property><name>dfs.client.use.datanode.hostname</name><value>true</value></property>
-<property><name>dfs.datanode.use.datanode.hostname</name><value>true</value></property>
+  <property>
+    <name>dfs.client.block.write.replace-datanode-on-failure.enable</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>dfs.client.block.write.replace-datanode-on-failure.policy</name>
+    <value>NEVER</value>
+  </property>
 
-<property><name>dfs.client.block.write.replace-datanode-on-failure.enable</name><value>true</value></property>
-<property><name>dfs.client.block.write.replace-datanode-on-failure.policy</name><value>NEVER</value></property>
-
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>minioadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>minioadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>${fs_s3_endpoint}</value>
+  </property>
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
 </configuration>

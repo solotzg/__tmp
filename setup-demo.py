@@ -14,8 +14,9 @@ DOWNLOAD_URL = 'http://10.2.12.124:19876'
 HUDI_START_PORT_OFFSET = 0
 kafka_port_name = 'kafka_port'
 flink_jobmanager_port_name = 'flink_jobmanager_port'
-HUDI_FLINK_PORT_NAME_SET = {"hadoop_web_port", "hdfs_port", "historyserver_port", "hiveserver_port",
-                            "spark_web_port", "spark_master_port", kafka_port_name, flink_jobmanager_port_name, 'hadoop_datanode_port'}
+HUDI_FLINK_PORT_NAME_SET = {"hadoop_web_port", "hdfs_port",
+                            kafka_port_name, flink_jobmanager_port_name, 'hadoop_datanode_port',
+                            'minio_web_port', 'minio_port'}
 TIDB_START_PORT_OFFSET = len(HUDI_FLINK_PORT_NAME_SET) + HUDI_START_PORT_OFFSET
 ticdc_port_name = 'ticdc_port'
 tidb_port_name = 'tidb_port'
@@ -311,6 +312,13 @@ class Runner:
         parser.add_argument(
             '--tidb_addr', help="external tidb address"
         )
+        parser.add_argument(
+            '--hadoop_datanode_port', help="hadoop datanode port(set it to `50010`)"
+        )
+        parser.add_argument(
+            '--minio_port', help="minio port(set it to `9000`)"
+        )
+
         cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
             '--cmd', help='command enum', choices=cmd_choices, required=True)
@@ -379,6 +387,7 @@ class Runner:
                     self.args.kafka_topic = topic
                     self.rm_kafka_topic()
             self.rm_etl(self.args.etl_job_id)
+            self.remove_all_bucket(prefix=self.args.etl_job_id)
         else:
             logger.warning("etl job `{}` NOT found".format(
                 self.args.etl_job_id))
@@ -411,6 +420,7 @@ class Runner:
                 self.rm_flink_job()
         self.args.hdfs_url = 'pingcap/demo/*'
         self.rm_hdfs_dir()
+        self.remove_all_bucket()
         topics = self._list_kafka_topics()
         for topic in topics:
             if topic.startswith('__'):
@@ -643,6 +653,20 @@ class Runner:
             if status:
                 err_msg.append((out, err))
 
+        if not os.path.exists(os.path.join(env_libs, 'hadoop-aws-2.7.3.jar')):
+            out, err, status = run_cmd("cd {} && wget {}".format(
+                env_libs, "{}/{}".format(
+                    DOWNLOAD_URL, 'hadoop-aws-2.7.3.jar')))
+            if status:
+                err_msg.append((out, err))
+
+        if not os.path.exists(os.path.join(env_libs, 'aws-java-sdk-1.10.34.jar')):
+            out, err, status = run_cmd("cd {} && wget {}".format(
+                env_libs, "{}/{}".format(
+                    DOWNLOAD_URL, 'aws-java-sdk-1.10.34.jar')))
+            if status:
+                err_msg.append((out, err))
+
         if err_msg:
             for o, e in err_msg:
                 logger.error(o)
@@ -766,6 +790,10 @@ class Runner:
         var_map = {}
         for i, v in enumerate(var_set):
             port = start_port+i
+            if self.args.hadoop_datanode_port and v == 'hadoop_datanode_port':
+                port = int(self.args.hadoop_datanode_port)
+            if self.args.minio_port and v == 'minio_port':
+                port = int(self.args.minio_port)
             if is_port_occupied(port):
                 logger.error(
                     "port {} is occupied, please set new `start_port`".format(port))
@@ -793,6 +821,20 @@ class Runner:
             "gen docker compose config file `{}`".format(config_file_path))
         var_map[HUFI_FLINK_COMPOSE_NAME] = config_file_path
         self.update_env_vars(var_map)
+
+        template_file = '{}/{}'.format(SCRIPT_DIR,
+                                       'hdfs-site.xml')
+        template_context = load_file(template_file)
+        template = Template(template_context)
+        config_file_path = '{}/{}/etc/hadoop/hdfs-site.xml'.format(
+            self.env_libs, HADOOP_NAME, )
+        s3_conf = {'fs_s3_endpoint': '{}:{}'.format(
+            self.host, var_map['minio_port'])}
+        d = template.substitute(s3_conf)
+        logger.info(
+            "gen hdfs config file `{}`. using s3 config `{}`".format(config_file_path, s3_conf))
+        with open(config_file_path, 'w') as f:
+            f.write(d)
 
     @property
     def hudi_flink_running(self):
@@ -840,6 +882,41 @@ class Runner:
                 "failed to deploy hudi flink cluster, error:\n{}".format(stderr))
             exit(-1)
         self.hudi_flink_running = True
+
+    def make_bucket(self, name):
+        from minio import Minio
+        client = Minio('{}:{}'.format(
+            self.host, self.env_vars['minio_port']), "minioadmin", "minioadmin", secure=False)
+        client.make_bucket(name)
+        logger.info('create minio bucket `{}`'.format(name))
+
+    def remove_all_bucket(self, prefix=None):
+        from minio import Minio
+        client = Minio('{}:{}'.format(
+            self.host, self.env_vars['minio_port']), "minioadmin", "minioadmin", secure=False)
+        buckets = client.list_buckets()
+        logger.debug("all minio buckets: {}".format(buckets))
+        if prefix:
+            for bucket in buckets:
+                if bucket.name.startswith(prefix):
+                    self.remove_bucket(bucket.name)
+        else:
+            for bucket in buckets:
+                self.remove_bucket(bucket.name)
+
+    def remove_bucket(self, bucketname):
+        from minio import Minio
+        from minio.deleteobjects import DeleteObject
+        client = Minio('{}:{}'.format(
+            self.host, self.env_vars['minio_port']), "minioadmin", "minioadmin", secure=False)
+        objects_to_delete = map(
+            lambda x: DeleteObject(x.object_name),
+            client.list_objects(bucketname, recursive=True),
+        )
+        for del_err in client.remove_objects(bucketname, objects_to_delete):
+            print("Deletion Error: {}".format(del_err))
+        client.remove_bucket(bucketname)
+        logger.info('remove minio bucket `{}`'.format(bucketname))
 
     def deploy_hudi_flink_tidb(self):
         self.deploy_hudi_flink()
@@ -1018,6 +1095,7 @@ class Runner:
             "hdfs_address": hdfs_url,
             "csv_file_path": csv_output_path,
             "tidb_address": self.tidb_address,
+            's3_dir': 's3a://{}'.format(topic)
         }
         logger.debug("set basic config: {}".format(var_map))
         flink_sql_file = '.tmp.flink.sink-{}-{}.sql'.format(
@@ -1138,6 +1216,8 @@ class Runner:
         hdfs_url = self._gen_hdfs_url('pingcap/demo/{}'.format(changefeed_id))
         self.args.hdfs_url = hdfs_url
         self.make_hdfs_dir()
+
+        self.make_bucket(changefeed_id)
 
         self.create_flink_job(
             self.host, etl_uid, table_id, kafka_topic, csv_output_path, hdfs_url, load_file(self.args.sink_task_flink_schema_path))
