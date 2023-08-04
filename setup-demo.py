@@ -324,6 +324,7 @@ class Runner:
             '--cmd', help='command enum', choices=cmd_choices, required=True)
         self.args = parser.parse_args()
         self.host = get_host_name()
+        self._s3_client = None
 
     def _run_kafka_topic(self, args):
         cmd = 'docker compose -f {} exec -T kafka bash -c "/opt/bitnami/kafka/bin/kafka-topics.sh --zookeeper zookeeper:2181 {}" '.format(
@@ -883,18 +884,25 @@ class Runner:
             exit(-1)
         self.hudi_flink_running = True
 
+    @property
+    def s3_addr(self):
+        return '{}:{}'.format(
+            self.host, self.env_vars['minio_port'])
+
+    @property
+    def s3_client(self):
+        if self._s3_client is None:
+            from minio import Minio
+            self._s3_client = Minio(self.s3_addr, "minioadmin",
+                                    "minioadmin", secure=False)
+        return self._s3_client
+
     def make_bucket(self, name):
-        from minio import Minio
-        client = Minio('{}:{}'.format(
-            self.host, self.env_vars['minio_port']), "minioadmin", "minioadmin", secure=False)
-        client.make_bucket(name)
+        self.s3_client.make_bucket(name)
         logger.info('create minio bucket `{}`'.format(name))
 
     def remove_all_bucket(self, prefix=None):
-        from minio import Minio
-        client = Minio('{}:{}'.format(
-            self.host, self.env_vars['minio_port']), "minioadmin", "minioadmin", secure=False)
-        buckets = client.list_buckets()
+        buckets = self.s3_client.list_buckets()
         logger.debug("all minio buckets: {}".format(buckets))
         if prefix:
             for bucket in buckets:
@@ -905,10 +913,8 @@ class Runner:
                 self.remove_bucket(bucket.name)
 
     def remove_bucket(self, bucketname):
-        from minio import Minio
         from minio.deleteobjects import DeleteObject
-        client = Minio('{}:{}'.format(
-            self.host, self.env_vars['minio_port']), "minioadmin", "minioadmin", secure=False)
+        client = self.s3_client
         objects_to_delete = map(
             lambda x: DeleteObject(x.object_name),
             client.list_objects(bucketname, recursive=True),
@@ -1056,14 +1062,24 @@ class Runner:
         replication_factor = 1
         topic = '{}-sink-{}'.format(etl_uid, table_id)
         changefeed_id = topic
+        self.make_bucket(changefeed_id)
         cdc_config_file = gen_ticdc_config_file(
             etl_uid, table_id, db, table_name)
         cdc_config_file_name = '/pingcap/demo/{}'.format(os.path.basename(
             cdc_config_file)) if not self.args.cdc_bin_path else cdc_config_file
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
-        ticdc_args = 'create --sink-uri="kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}" --changefeed-id="{}" --config={}'.format(
-            kafka_addr, topic, protocol, KAFKA_VERSION, partition_num, max_message_bytes, replication_factor, changefeed_id, cdc_config_file_name
+        sink_uri = '"s3://{CHANGEFEED}/{PATH}?protocol={PROTOCOL}&endpoint=http://{S3_HOST}&access-Key=minioadmin&secret-Access-Key=minioadmin&enable-tidb-extension=true"'.format(
+            CHANGEFEED=changefeed_id,
+            PATH='ticdc-sink',
+            S3_HOST=self.s3_addr,
+            PROTOCOL=protocol
+        )
+        sink_uri = '"kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}"'.format(
+            kafka_addr, topic, protocol, KAFKA_VERSION, partition_num, max_message_bytes, replication_factor,
+        )
+        ticdc_args = 'create --sink-uri={} --changefeed-id="{}" --config={}'.format(
+            sink_uri, changefeed_id, cdc_config_file_name
         )
         if self.args.changefeed_start_ts:
             ticdc_args = "{} --start-ts={}".format(ticdc_args,
@@ -1216,8 +1232,6 @@ class Runner:
         hdfs_url = self._gen_hdfs_url('pingcap/demo/{}'.format(changefeed_id))
         self.args.hdfs_url = hdfs_url
         self.make_hdfs_dir()
-
-        self.make_bucket(changefeed_id)
 
         self.create_flink_job(
             self.host, etl_uid, table_id, kafka_topic, csv_output_path, hdfs_url, load_file(self.args.sink_task_flink_schema_path))

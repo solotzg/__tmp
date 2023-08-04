@@ -85,6 +85,7 @@ services:
       - ${env_libs}:/pingcap/env_libs
       - ${pingcap_demo_path}:/pingcap/demo
       - ${pingcap_demo_path}/.tmp.demo/third_party/flink:/tmp
+      - ${pingcap_demo_path}/.tmp.demo/third_party/flink-log:/opt/flink/log
     ports:
       - "$flink_jobmanager_port:8081"
     command: /pingcap/demo/flink-jobmanager.sh
@@ -105,6 +106,7 @@ services:
       - ${env_libs}:/pingcap/env_libs
       - ${pingcap_demo_path}:/pingcap/demo
       - ${pingcap_demo_path}/.tmp.demo/third_party/flink:/tmp
+      - ${pingcap_demo_path}/.tmp.demo/third_party/flink-log:/opt/flink/log
     depends_on:
       - jobmanager
     command: /pingcap/demo/flink-taskmanager.sh
@@ -129,6 +131,7 @@ services:
       - ${env_libs}:/pingcap/env_libs
       - ${pingcap_demo_path}:/pingcap/demo
       - ${pingcap_demo_path}/.tmp.demo/third_party/flink:/tmp
+      - ${pingcap_demo_path}/.tmp.demo/third_party/flink-log:/opt/flink/log
     depends_on:
       - jobmanager
       - taskmanager

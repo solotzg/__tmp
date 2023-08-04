@@ -19,6 +19,7 @@ mkdir -p hadoop/dfs/name
 mkdir -p hadoop/dfs/data
 mkdir -p kafka
 mkdir -p flink
+mkdir -p flink-log
 mkdir -p zookeeper
 cd -
 
