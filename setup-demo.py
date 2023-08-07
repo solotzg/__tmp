@@ -321,6 +321,9 @@ class Runner:
         parser.add_argument(
             '--kafka_partition_num', help="kafka partition num(default `1`)"
         )
+        parser.add_argument(
+            '--no_dump_table', action="store_true"
+        )
 
         cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
@@ -1178,6 +1181,11 @@ class Runner:
 
         with open(csv_output_path, 'w') as _:
             pass
+
+        if self.args.no_dump_table:
+            logger.warning(
+                "table {}.{} will NOT be dumped".format(db, table_name))
+            return csv_output_path
 
         tidb_host, tidb_port = self.tidb_address.split(':')
         args = '-u root  -h {} -P {} -o {} --no-header --filetype csv --snapshot {} --sql "select * from {}.{}" --output-filename-template "{}.{}" '.format(
