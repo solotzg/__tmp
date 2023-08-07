@@ -17,7 +17,7 @@ def sink_table_info_no_error():
     logger.info('start to sleep {}s'.format(sleep_time))
     time.sleep(sleep_time)
     logger.info('finish to sleep {}s'.format(sleep_time))
-    cmd = './setup-demo.py --cmd sink_task --sink_task_desc="etl3.3.demo.t3" --sink_task_flink_schema_path ./example3-s3/flink.sql.template'
+    cmd = './setup-demo.py --cmd sink_task --sink_task_desc="etl3.3.demo.t3" --sink_task_flink_schema_path ./example3-s3/flink.sql.template --kafka_partition_num=6'
     run_cmd(cmd, show_stdout=True, no_error=True)
     logger.info('end thread `{}`'.format(threading.get_ident()))
 

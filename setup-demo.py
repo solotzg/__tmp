@@ -318,6 +318,9 @@ class Runner:
         parser.add_argument(
             '--minio_port', help="minio port(set it to `9000`)"
         )
+        parser.add_argument(
+            '--kafka_partition_num', help="kafka partition num(default `1`)"
+        )
 
         cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
@@ -356,7 +359,7 @@ class Runner:
 
     def _create_kafka_topics(self, topic):
         self._run_kafka_topic(
-            '--create --topic={} --partitions=1 --replication-factor=1'.format(topic))
+            '--create --topic={} --partitions={} --replication-factor=1'.format(topic, self.kafka_partition_num))
 
     def rm_etl_job(self):
         assert self.args.etl_job_id
@@ -1053,11 +1056,19 @@ class Runner:
             logger.info('schema of `{}`.`{}` is:\n{}'.format(
                 db, table_name, out))
 
+    @property
+    def kafka_partition_num(self):
+        if self.args.kafka_partition_num is None:
+            return 1
+        num = int(self.args.kafka_partition_num)
+        num = max(num, 1)
+        return num
+
     def create_ticdc_sink_job_to_kafka(self, host, etl_uid, table_id, db, table_name):
         kafka_addr = '{}:{}'.format(
             host, self.env_vars[kafka_port_name]) if self.args.kafka_addr is None else self.args.kafka_addr
         protocol = "canal-json"
-        partition_num = 1
+        partition_num = self.kafka_partition_num
         max_message_bytes = 67108864
         replication_factor = 1
         topic = '{}-sink-{}'.format(etl_uid, table_id)
