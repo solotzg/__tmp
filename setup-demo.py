@@ -324,6 +324,12 @@ class Runner:
         parser.add_argument(
             '--no_dump_table', action="store_true"
         )
+        parser.add_argument(
+            '--cdc_config_file', help='cdc sink config file path'
+        )
+        parser.add_argument(
+            '--cdc_sink_s3', action="store_true"
+        )
 
         cmd_choices = set(self.funcs_map.keys())
         parser.add_argument(
@@ -1077,21 +1083,34 @@ class Runner:
         topic = '{}-sink-{}'.format(etl_uid, table_id)
         changefeed_id = topic
         self.make_bucket(changefeed_id)
-        cdc_config_file = gen_ticdc_config_file(
-            etl_uid, table_id, db, table_name)
+
+        if self.args.cdc_config_file:
+            tar_path = os.path.realpath(self.args.cdc_config_file)
+            if os.path.dirname(tar_path) == SCRIPT_DIR:
+                cdc_config_file = tar_path
+            else:
+                c = read_file(self.args.cdc_config_file)
+                file_name = '.tmp.ticdc-config-{}.toml'.format(
+                    etl_uid)
+                cdc_config_file = os.path.join(SCRIPT_DIR, file_name)
+                write_file(cdc_config_file, c)
+        else:
+            cdc_config_file = gen_ticdc_config_file(
+                etl_uid, table_id, db, table_name)
         cdc_config_file_name = '/pingcap/demo/{}'.format(os.path.basename(
             cdc_config_file)) if not self.args.cdc_bin_path else cdc_config_file
         logger.info('gen topic `{}`, changefeed-id `{}` for sink task `{}`'.format(
             topic, changefeed_id, self.args.sink_task_desc))
-        sink_uri = '"s3://{CHANGEFEED}/{PATH}?protocol={PROTOCOL}&endpoint=http://{S3_HOST}&access-Key=minioadmin&secret-Access-Key=minioadmin&enable-tidb-extension=true"'.format(
+        sink_uri_s3 = '"s3://{CHANGEFEED}/{PATH}?protocol={PROTOCOL}&endpoint=http://{S3_HOST}&access-Key=minioadmin&secret-Access-Key=minioadmin&enable-tidb-extension=true"'.format(
             CHANGEFEED=changefeed_id,
             PATH='ticdc-sink',
             S3_HOST=self.s3_addr,
             PROTOCOL=protocol
         )
-        sink_uri = '"kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}"'.format(
+        sink_uri_kafka = '"kafka://{}/{}?protocol={}&kafka-version={}&partition-num={}&max-message-bytes={}&replication-factor={}"'.format(
             kafka_addr, topic, protocol, KAFKA_VERSION, partition_num, max_message_bytes, replication_factor,
         )
+        sink_uri = sink_uri_s3 if self.args.cdc_sink_s3 else sink_uri_kafka
         ticdc_args = 'create --sink-uri={} --changefeed-id="{}" --config={}'.format(
             sink_uri, changefeed_id, cdc_config_file_name
         )
@@ -1324,6 +1343,16 @@ def load_file(file_path):
             template_context.append(line)
     logger.debug('load context from `{}`'.format(file_path))
     return '\n'.join(template_context)
+
+
+def read_file(file_path):
+    with open(file_path, 'r') as f:
+        return f.read()
+
+
+def write_file(file_path, c):
+    with open(file_path, 'w') as f:
+        return f.write(c)
 
 
 def gen_ticdc_config_file(etl_uid, table_id, db, table):
