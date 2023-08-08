@@ -141,6 +141,7 @@ type consumer struct {
 	tableSinkMap     map[model.TableID]tablesink.TableSink
 	tableIDGenerator *fakeTableIDGenerator
 	errCh            chan error
+	CheckpointTs     uint64
 }
 
 func newConsumer(ctx context.Context) (*consumer, error) {
@@ -294,6 +295,31 @@ func (c *consumer) getNewFiles(
 
 	tableDMLMap = diffDMLMaps(c.tableDMLIdxMap, origDMLIdxMap)
 	return tableDMLMap, err
+}
+
+type metadata struct {
+	CheckpointTs uint64 `json:"checkpoint-ts"`
+}
+
+func (c *consumer) getCheckpointTs(
+	ctx context.Context,
+) (uint64, error) {
+	origDMLIdxMap := make(map[cloudstorage.DmlPathKey]uint64, len(c.tableDMLIdxMap))
+	for k, v := range c.tableDMLIdxMap {
+		origDMLIdxMap[k] = v
+	}
+
+	var meta metadata
+	metadataContent, err := c.externalStorage.ReadFile(ctx, "metadata")
+	if err != nil {
+		return 0, err
+	}
+	err = json.Unmarshal(metadataContent, &meta)
+	if err != nil {
+		return 0, err
+	}
+
+	return meta.CheckpointTs, nil
 }
 
 // emitDMLEvents decodes RowChangedEvents from file content and emit them.
@@ -615,6 +641,15 @@ func (c *consumer) run(ctx context.Context) error {
 			return err
 		case <-ticker.C:
 		}
+
+		checkpointTs, err := c.getCheckpointTs(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		c.CheckpointTs = checkpointTs
+
+		log.Debug("run one round of consumer", zap.Uint64("checkpoint-ts", checkpointTs))
 
 		dmlFileMap, err := c.getNewFiles(ctx)
 
