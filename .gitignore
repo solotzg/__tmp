@@ -3,3 +3,4 @@
 *.jar
 launch.json
 .vscode/
+bin/
