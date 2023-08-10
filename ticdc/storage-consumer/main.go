@@ -13,7 +13,7 @@
 
 /*
 mysql -h 0.0.0.0 -P 12354 -u root < example3-s3/tidb.sql
-./setup-demo.py --cmd sink_task --sink_task_desc="etl3.3.demo.t3" --sink_task_flink_schema_path ./example3-s3/flink.sql.template
+./setup-demo.py --cmd sink_task --sink_task_desc="etl3.3.demo.t3" --sink_task_flink_schema_path ./example3-s3/flink.sql.template --cdc_sink_s3
 mysql -h 0.0.0.0 -P 12354 -u root -e "insert into demo.t3 (select max(a)+1,max(a)+1 from demo.t3)"
 cd ticdc/storage-consumer
 go build -o ./bin/
@@ -41,9 +41,8 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tiflow/cdc/model"
-	"github.com/pingcap/tiflow/cdc/sink/ddlsink"
-	ddlfactory "github.com/pingcap/tiflow/cdc/sink/ddlsink/factory"
-	dmlfactory "github.com/pingcap/tiflow/cdc/sink/dmlsink/factory"
+	"github.com/pingcap/tiflow/cdc/sink/dmlsink"
+	"github.com/pingcap/tiflow/cdc/sink/dmlsink/blackhole"
 	"github.com/pingcap/tiflow/cdc/sink/tablesink"
 	sinkutil "github.com/pingcap/tiflow/cdc/sink/util"
 	"github.com/pingcap/tiflow/pkg/cmd/util"
@@ -64,16 +63,15 @@ import (
 )
 
 var (
-	upstreamURIStr   string
-	upstreamURI      *url.URL
-	downstreamURIStr string
-	configFile       string
-	logFile          string
-	logLevel         string
-	flushInterval    time.Duration
-	fileIndexWidth   int
-	enableProfiling  bool
-	timezone         string
+	upstreamURIStr  string
+	upstreamURI     *url.URL
+	configFile      string
+	logFile         string
+	logLevel        string
+	flushInterval   time.Duration
+	fileIndexWidth  int
+	enableProfiling bool
+	timezone        string
 )
 
 const (
@@ -85,7 +83,6 @@ const (
 func init() {
 	version.LogVersionInfo("storage consumer")
 	flag.StringVar(&upstreamURIStr, "upstream-uri", "", "storage uri")
-	flag.StringVar(&downstreamURIStr, "downstream-uri", "", "downstream sink uri")
 	flag.StringVar(&configFile, "config", "", "changefeed configuration file")
 	flag.StringVar(&logFile, "log-file", "", "log file path")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
@@ -125,8 +122,6 @@ type fileIndexRange struct {
 }
 
 type consumer struct {
-	sinkFactory     *dmlfactory.SinkFactory
-	ddlSink         ddlsink.Sink
 	replicationCfg  *config.ReplicaConfig
 	codecCfg        *common.Config
 	externalStorage storage.ExternalStorage
@@ -142,6 +137,14 @@ type consumer struct {
 	tableIDGenerator *fakeTableIDGenerator
 	errCh            chan error
 	CheckpointTs     uint64
+	TableAnyConsumed map[model.TableID]bool
+}
+
+type innerJoin struct {
+	keys     []string
+	left     model.TableID
+	right    model.TableID
+	consumer *consumer
 }
 
 func newConsumer(ctx context.Context) (*consumer, error) {
@@ -197,29 +200,8 @@ func newConsumer(ctx context.Context) (*consumer, error) {
 	}
 
 	errCh := make(chan error, 1)
-	stdCtx := ctx
-	sinkFactory, err := dmlfactory.New(
-		stdCtx,
-		model.DefaultChangeFeedID(defaultChangefeedName),
-		downstreamURIStr,
-		config.GetDefaultReplicaConfig(),
-		errCh,
-	)
-	if err != nil {
-		log.Error("failed to create event sink factory", zap.Error(err))
-		return nil, err
-	}
-
-	ddlSink, err := ddlfactory.New(ctx, model.DefaultChangeFeedID(defaultChangefeedName),
-		downstreamURIStr, config.GetDefaultReplicaConfig())
-	if err != nil {
-		log.Error("failed to create ddl sink", zap.Error(err))
-		return nil, err
-	}
 
 	return &consumer{
-		sinkFactory:     sinkFactory,
-		ddlSink:         ddlSink,
 		replicationCfg:  replicaConfig,
 		codecCfg:        codecConfig,
 		externalStorage: storage,
@@ -380,10 +362,11 @@ func (c *consumer) emitDMLEvents(
 			}
 
 			if _, ok := c.tableSinkMap[tableID]; !ok {
-				c.tableSinkMap[tableID] = c.sinkFactory.CreateTableSinkForConsumer(
-					model.DefaultChangeFeedID(defaultChangefeedName),
+				var rowSink dmlsink.EventSink[*model.RowChangedEvent] = blackhole.NewDMLSink()
+				c.tableSinkMap[tableID] = tablesink.New(model.DefaultChangeFeedID(defaultChangefeedName),
 					spanz.TableIDToComparableSpan(tableID),
-					row.CommitTs,
+					row.CommitTs, rowSink,
+					&dmlsink.RowChangeEventAppender{},
 					prometheus.NewCounter(prometheus.CounterOpts{}))
 			}
 
@@ -418,28 +401,25 @@ func (c *consumer) emitDMLEvents(
 	return err
 }
 
-func (c *consumer) waitTableFlushComplete(ctx context.Context, tableID model.TableID) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-c.errCh:
-			return err
-		default:
-		}
-
-		resolvedTs := c.tableTsMap[tableID]
-		err := c.tableSinkMap[tableID].UpdateResolvedTs(resolvedTs)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		checkpoint := c.tableSinkMap[tableID].GetCheckpointTs()
-		if checkpoint.Equal(resolvedTs) {
-			c.tableTsMap[tableID] = resolvedTs.AdvanceBatch()
-			return nil
-		}
-		time.Sleep(defaultFlushWaitDuration)
+func (c *consumer) isSafeCheckpointTs(ts uint64, tableID int64, allInCache bool) bool {
+	// if all data of table has been handled (in cache), ts is safe if in range (, c.CheckpointTs]
+	// else ts is safe of in range (, c.tableTsMap[tableID].Ts)
+	if allInCache {
+		return ts <= c.CheckpointTs
+	} else {
+		return ts < c.tableTsMap[tableID].Ts
 	}
+}
+
+func (c *consumer) updateTableResolvedTs() error {
+	globalCheckpoint := model.NewResolvedTs(c.CheckpointTs)
+	for tableID := range c.TableAnyConsumed {
+		err := c.tableSinkMap[tableID].UpdateResolvedTs(globalCheckpoint)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *consumer) syncExecDMLEvents(
@@ -456,17 +436,10 @@ func (c *consumer) syncExecDMLEvents(
 	}
 	tableID := c.tableIDGenerator.generateFakeTableID(
 		key.Schema, key.Table, key.PartitionNum)
-	err = c.emitDMLEvents(ctx, tableID, tableDef, key, content)
-	if err != nil {
-		return errors.Trace(err)
-	}
 
-	resolvedTs := c.tableTsMap[tableID]
-	err = c.tableSinkMap[tableID].UpdateResolvedTs(resolvedTs)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = c.waitTableFlushComplete(ctx, tableID)
+	c.TableAnyConsumed[tableID] = true
+
+	err = c.emitDMLEvents(ctx, tableID, tableDef, key, content)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -604,21 +577,21 @@ func (c *consumer) handleNewFiles(
 
 	for _, key := range keys {
 		tableDef := c.mustGetTableDef(key.SchemaPathKey)
-		// if the key is a fake dml path key which is mainly used for
-		// sorting schema.json file before the dml files, then execute the ddl query.
-		if key.PartitionNum == fakePartitionNumForSchemaFile &&
-			len(key.Date) == 0 && len(tableDef.Query) > 0 {
-			ddlEvent, err := tableDef.ToDDLEvent()
-			if err != nil {
-				return err
-			}
-			if err := c.ddlSink.WriteDDLEvent(ctx, ddlEvent); err != nil {
-				return errors.Trace(err)
-			}
-			// TODO: need to cleanup tableDefMap in the future.
-			log.Info("execute ddl event successfully", zap.String("query", tableDef.Query))
-			continue
-		}
+		// // if the key is a fake dml path key which is mainly used for
+		// // sorting schema.json file before the dml files, then execute the ddl query.
+		// if key.PartitionNum == fakePartitionNumForSchemaFile &&
+		// 	len(key.Date) == 0 && len(tableDef.Query) > 0 {
+		// 	ddlEvent, err := tableDef.ToDDLEvent()
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	if err := c.ddlSink.WriteDDLEvent(ctx, ddlEvent); err != nil {
+		// 		return errors.Trace(err)
+		// 	}
+		// 	// TODO: need to cleanup tableDefMap in the future.
+		// 	log.Info("execute ddl event successfully", zap.String("query", tableDef.Query))
+		// 	continue
+		// }
 
 		fileRange := dmlFileMap[key]
 		for i := fileRange.start; i <= fileRange.end; i++ {
@@ -651,6 +624,8 @@ func (c *consumer) run(ctx context.Context) error {
 
 		log.Debug("run one round of consumer", zap.Uint64("checkpoint-ts", checkpointTs))
 
+		c.TableAnyConsumed = make(map[int64]bool)
+
 		dmlFileMap, err := c.getNewFiles(ctx)
 
 		if err != nil {
@@ -661,6 +636,12 @@ func (c *consumer) run(ctx context.Context) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
+
+		err = c.updateTableResolvedTs()
+		if err != nil {
+			return errors.Trace(err)
+		}
+
 	}
 }
 
@@ -707,7 +688,9 @@ func main() {
 	deferFunc := func() int {
 		stop()
 		if consumer != nil {
-			consumer.sinkFactory.Close()
+			for _, v := range consumer.tableSinkMap {
+				v.Close()
+			}
 		}
 		if err != nil && err != context.Canceled {
 			return 1
