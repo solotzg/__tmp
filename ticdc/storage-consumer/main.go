@@ -37,12 +37,13 @@ import (
 	"syscall"
 	"time"
 
+	tidb "database/sql"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tiflow/cdc/model"
 	"github.com/pingcap/tiflow/cdc/sink/dmlsink"
-	"github.com/pingcap/tiflow/cdc/sink/dmlsink/blackhole"
 	"github.com/pingcap/tiflow/cdc/sink/tablesink"
 	sinkutil "github.com/pingcap/tiflow/cdc/sink/util"
 	"github.com/pingcap/tiflow/pkg/cmd/util"
@@ -54,7 +55,6 @@ import (
 	"github.com/pingcap/tiflow/pkg/sink/codec"
 	"github.com/pingcap/tiflow/pkg/sink/codec/canal"
 	"github.com/pingcap/tiflow/pkg/sink/codec/common"
-	"github.com/pingcap/tiflow/pkg/sink/codec/csv"
 	"github.com/pingcap/tiflow/pkg/spanz"
 	putil "github.com/pingcap/tiflow/pkg/util"
 	"github.com/pingcap/tiflow/pkg/version"
@@ -72,6 +72,8 @@ var (
 	fileIndexWidth  int
 	enableProfiling bool
 	timezone        string
+	tidbAddr        string
+	tidbTestSQL     string
 )
 
 const (
@@ -91,7 +93,14 @@ func init() {
 		config.DefaultFileIndexWidth, "file index width")
 	flag.BoolVar(&enableProfiling, "enable-profiling", false, "whether to enable profiling")
 	flag.StringVar(&timezone, "tz", "System", "Specify time zone of storage consumer")
+	flag.StringVar(&tidbAddr, "tidb-addr", "127.0.0.1:12354", "Specify tidb address `host/ip`:`port`")
+	flag.StringVar(&tidbTestSQL, "test-sql", "", "sql: select ? from ? where ?")
+
 	flag.Parse()
+
+	if len(tidbTestSQL) > 0 {
+		return
+	}
 
 	err := logutil.InitLogger(&logutil.Config{
 		Level: logLevel,
@@ -138,13 +147,6 @@ type consumer struct {
 	errCh            chan error
 	CheckpointTs     uint64
 	TableAnyConsumed map[model.TableID]bool
-}
-
-type innerJoin struct {
-	keys     []string
-	left     model.TableID
-	right    model.TableID
-	consumer *consumer
 }
 
 func newConsumer(ctx context.Context) (*consumer, error) {
@@ -304,6 +306,117 @@ func (c *consumer) getCheckpointTs(
 	return meta.CheckpointTs, nil
 }
 
+var _ dmlsink.EventSink[*model.RowChangedEvent] = (*IMVSink)(nil)
+
+type IMVSink struct {
+	joinKeys []string
+	table1   string
+	table2   string
+	consumer *consumer
+	db       *tidb.DB
+}
+
+func newMySQLConn(addr string) (*tidb.DB, error) {
+	return tidb.Open("mysql", fmt.Sprintf("root:@tcp(%s)/mysql", addr))
+}
+
+func newIMVSink(joinKeys []string, table1, table2 string, consumer *consumer, addr string) (*IMVSink, error) {
+	db, err := newMySQLConn(addr)
+	if err != nil {
+		return nil, err
+	}
+	return &IMVSink{
+		joinKeys: joinKeys,
+		table1:   table1,
+		table2:   table2,
+		consumer: consumer,
+		db:       db,
+	}, nil
+}
+
+func (v *IMVSink) Close() {
+	v.db.Close()
+}
+
+func getJSON(db *tidb.DB, sqlString string) ([]map[string]interface{}, error) {
+	rows, err := db.Query(sqlString)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	count := len(columns)
+	tableData := make([]map[string]interface{}, 0)
+	values := make([]interface{}, count)
+	valuePtrs := make([]interface{}, count)
+	for rows.Next() {
+		for i := 0; i < count; i++ {
+			valuePtrs[i] = &values[i]
+		}
+		rows.Scan(valuePtrs...)
+		entry := make(map[string]interface{})
+		for i, col := range columns {
+			var v interface{}
+			val := values[i]
+			b, ok := val.([]byte)
+			if ok {
+				v = string(b)
+			} else {
+				v = val
+			}
+			entry[col] = v
+		}
+		tableData = append(tableData, entry)
+	}
+	return tableData, nil
+}
+
+func getTableDataAtTs(db *tidb.DB, ts uint64, table string, keys []string, values []string) ([]map[string]interface{}, error) {
+	var condition []string
+	if keys != nil && values != nil {
+		condition = []string{}
+		for i := range keys {
+			condition = append(condition, fmt.Sprintf("%s = '%s'", keys[i], values[i]))
+		}
+	}
+
+	sqlString := fmt.Sprintf("set tidb_snapshot=%d; select * from `%s`", ts, table)
+	if condition != nil {
+		sqlString += fmt.Sprintf(" where %s", strings.Join(condition, " and "))
+	}
+
+	res, err := getJSON(db, sqlString)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// WriteEvents log the events.
+func (s *IMVSink) WriteEvents(rows ...*dmlsink.CallbackableEvent[*model.RowChangedEvent]) error {
+	for _, row := range rows {
+		// NOTE: don't change the log, some tests depend on it.
+		log.Debug("IMV: WriteEvents", zap.Any("row", row.Event))
+		if row.Event.IsInsert() {
+
+		} else if row.Event.IsUpdate() {
+
+		} else if row.Event.IsDelete() {
+
+		}
+	}
+
+	return nil
+}
+
+// Dead returns a checker.
+func (s *IMVSink) Dead() <-chan struct{} {
+	return make(chan struct{})
+}
+
 // emitDMLEvents decodes RowChangedEvents from file content and emit them.
 func (c *consumer) emitDMLEvents(
 	ctx context.Context, tableID int64,
@@ -316,18 +429,9 @@ func (c *consumer) emitDMLEvents(
 		err     error
 	)
 
-	tableInfo, err := tableDetail.ToTableInfo()
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	switch c.codecCfg.Protocol {
-	case config.ProtocolCsv:
-		decoder, err = csv.NewBatchDecoder(ctx, c.codecCfg, tableInfo, content)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	case config.ProtocolCanalJSON:
+	if c.codecCfg.Protocol != config.ProtocolCanalJSON {
+		return errors.Trace(errors.Errorf("expect %s but got %s", config.ProtocolCanalJSON.String(), c.codecCfg.Protocol.String()))
+	} else {
 		// Always enable tidb extension for canal-json protocol
 		// because we need to get the commit ts from the extension field.
 		c.codecCfg.EnableTiDBExtension = true
@@ -362,7 +466,7 @@ func (c *consumer) emitDMLEvents(
 			}
 
 			if _, ok := c.tableSinkMap[tableID]; !ok {
-				var rowSink dmlsink.EventSink[*model.RowChangedEvent] = blackhole.NewDMLSink()
+				var rowSink dmlsink.EventSink[*model.RowChangedEvent] = &IMVSink{}
 				c.tableSinkMap[tableID] = tablesink.New(model.DefaultChangeFeedID(defaultChangefeedName),
 					spanz.TableIDToComparableSpan(tableID),
 					row.CommitTs, rowSink,
@@ -665,6 +769,18 @@ func (g *fakeTableIDGenerator) generateFakeTableID(schema, table string, partiti
 	g.currentTableID++
 	g.tableIDs[key] = g.currentTableID
 	return g.currentTableID
+}
+
+func main2() {
+	db, err := newMySQLConn(tidbAddr)
+	if err != nil {
+		panic(err.Error())
+	}
+	r, err := getJSON(db, tidbTestSQL)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Print(r)
 }
 
 func main() {

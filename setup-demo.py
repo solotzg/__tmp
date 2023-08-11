@@ -509,7 +509,7 @@ class Runner:
 
     def list_ticdc_jobs(self):
         details = self._list_ticdc_jobs()
-        logger.info('ticdc job details:\n{}\n'.format(details))
+        logger.info('ticdc job details:\n{}\n'.format(json.dumps(details)))
 
     def rm_ticdc_job(self):
         assert self.args.cdc_changefeed_id
