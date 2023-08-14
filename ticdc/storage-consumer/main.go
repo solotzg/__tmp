@@ -48,6 +48,7 @@ import (
 	sinkutil "github.com/pingcap/tiflow/cdc/sink/util"
 	"github.com/pingcap/tiflow/pkg/cmd/util"
 	"github.com/pingcap/tiflow/pkg/config"
+	"github.com/pingcap/tiflow/pkg/container/sortmap"
 	"github.com/pingcap/tiflow/pkg/logutil"
 	"github.com/pingcap/tiflow/pkg/quotes"
 	psink "github.com/pingcap/tiflow/pkg/sink"
@@ -130,6 +131,8 @@ type fileIndexRange struct {
 	end   uint64
 }
 
+type TxnSinkMap map[uint64][]*model.RowChangedEvent
+
 type consumer struct {
 	replicationCfg  *config.ReplicaConfig
 	codecCfg        *common.Config
@@ -143,10 +146,10 @@ type consumer struct {
 	tableDefMap map[string]map[uint64]*cloudstorage.TableDefinition
 	// tableSinkMap maintains a map of <TableID, TableSink>
 	tableSinkMap     map[model.TableID]tablesink.TableSink
+	txnSinkMap       TxnSinkMap
 	tableIDGenerator *fakeTableIDGenerator
 	errCh            chan error
 	CheckpointTs     uint64
-	TableAnyConsumed map[model.TableID]bool
 }
 
 func newConsumer(ctx context.Context) (*consumer, error) {
@@ -216,6 +219,7 @@ func newConsumer(ctx context.Context) (*consumer, error) {
 		tableIDGenerator: &fakeTableIDGenerator{
 			tableIDs: make(map[string]int64),
 		},
+		txnSinkMap: make(TxnSinkMap),
 	}, nil
 }
 
@@ -309,28 +313,28 @@ func (c *consumer) getCheckpointTs(
 var _ dmlsink.EventSink[*model.RowChangedEvent] = (*IMVSink)(nil)
 
 type IMVSink struct {
-	joinKeys []string
-	table1   string
-	table2   string
-	consumer *consumer
-	db       *tidb.DB
+	joinKeys   []string
+	table1     string
+	table2     string
+	db         *tidb.DB
+	txnSinkMap TxnSinkMap
 }
 
 func newMySQLConn(addr string) (*tidb.DB, error) {
 	return tidb.Open("mysql", fmt.Sprintf("root:@tcp(%s)/mysql", addr))
 }
 
-func newIMVSink(joinKeys []string, table1, table2 string, consumer *consumer, addr string) (*IMVSink, error) {
+func newIMVSink(joinKeys []string, table1, table2 string, txnSinkMap TxnSinkMap, addr string) (*IMVSink, error) {
 	db, err := newMySQLConn(addr)
 	if err != nil {
 		return nil, err
 	}
 	return &IMVSink{
-		joinKeys: joinKeys,
-		table1:   table1,
-		table2:   table2,
-		consumer: consumer,
-		db:       db,
+		joinKeys:   joinKeys,
+		table1:     table1,
+		table2:     table2,
+		txnSinkMap: txnSinkMap,
+		db:         db,
 	}, nil
 }
 
@@ -374,6 +378,22 @@ func getJSON(db *tidb.DB, sqlString string) ([]map[string]interface{}, error) {
 	return tableData, nil
 }
 
+func into_condition(keys []string, values []string) string {
+	var condition []string
+	if keys != nil && values != nil {
+		condition = []string{}
+		for i := range keys {
+			condition = append(condition, fmt.Sprintf("%s = '%s'", keys[i], values[i]))
+		}
+	}
+
+	if condition != nil {
+		return fmt.Sprintf(" where %s", strings.Join(condition, " and "))
+	}
+	return ""
+
+}
+
 func getTableDataAtTs(db *tidb.DB, ts uint64, table string, keys []string, values []string) ([]map[string]interface{}, error) {
 	var condition []string
 	if keys != nil && values != nil {
@@ -398,14 +418,10 @@ func getTableDataAtTs(db *tidb.DB, ts uint64, table string, keys []string, value
 // WriteEvents log the events.
 func (s *IMVSink) WriteEvents(rows ...*dmlsink.CallbackableEvent[*model.RowChangedEvent]) error {
 	for _, row := range rows {
-		// NOTE: don't change the log, some tests depend on it.
-		log.Debug("IMV: WriteEvents", zap.Any("row", row.Event))
-		if row.Event.IsInsert() {
-
-		} else if row.Event.IsUpdate() {
-
-		} else if row.Event.IsDelete() {
-
+		if v, ok := s.txnSinkMap[row.Event.CommitTs]; !ok {
+			s.txnSinkMap[row.Event.CommitTs] = []*model.RowChangedEvent{row.Event}
+		} else {
+			s.txnSinkMap[row.Event.CommitTs] = append(v, row.Event)
 		}
 	}
 
@@ -466,7 +482,13 @@ func (c *consumer) emitDMLEvents(
 			}
 
 			if _, ok := c.tableSinkMap[tableID]; !ok {
-				var rowSink dmlsink.EventSink[*model.RowChangedEvent] = &IMVSink{}
+				imv, err := newIMVSink(nil, "", "", c.txnSinkMap, tidbAddr)
+				if err != nil {
+					log.Error("failed to create IMV", zap.Error(err))
+					return errors.Trace(err)
+				}
+
+				var rowSink dmlsink.EventSink[*model.RowChangedEvent] = imv
 				c.tableSinkMap[tableID] = tablesink.New(model.DefaultChangeFeedID(defaultChangefeedName),
 					spanz.TableIDToComparableSpan(tableID),
 					row.CommitTs, rowSink,
@@ -515,14 +537,42 @@ func (c *consumer) isSafeCheckpointTs(ts uint64, tableID int64, allInCache bool)
 	}
 }
 
+func calc(commitTs uint64, events []*model.RowChangedEvent, joinKeys []string) {
+	for _, event := range events {
+		if event.IsInsert() {
+			pk := []string{}
+			pkVal := []string{}
+			for _, col := range event.Columns {
+				if col == nil {
+					continue
+				}
+				if col.Flag.IsPrimaryKey() {
+					pk = append(pk, col.Name)
+					pkVal = append(pkVal, model.ColumnValueString(col.Value))
+				}
+			}
+			// "select * from %s t1, %s t2 where t1. "
+			into_condition([]string{"t1."}, []string{""})
+
+		} else if event.IsUpdate() {
+			l := len(event.PreColumns)
+			_ = l
+		}
+	}
+}
+
 func (c *consumer) updateTableResolvedTs() error {
 	globalCheckpoint := model.NewResolvedTs(c.CheckpointTs)
-	for tableID := range c.TableAnyConsumed {
-		err := c.tableSinkMap[tableID].UpdateResolvedTs(globalCheckpoint)
+	for _, m := range c.tableSinkMap {
+		err := m.UpdateResolvedTs(globalCheckpoint)
 		if err != nil {
 			return err
 		}
 	}
+	for _, m := range sortmap.Sort(c.txnSinkMap) {
+		fmt.Println(m)
+	}
+
 	return nil
 }
 
@@ -540,8 +590,6 @@ func (c *consumer) syncExecDMLEvents(
 	}
 	tableID := c.tableIDGenerator.generateFakeTableID(
 		key.Schema, key.Table, key.PartitionNum)
-
-	c.TableAnyConsumed[tableID] = true
 
 	err = c.emitDMLEvents(ctx, tableID, tableDef, key, content)
 	if err != nil {
@@ -727,8 +775,6 @@ func (c *consumer) run(ctx context.Context) error {
 		c.CheckpointTs = checkpointTs
 
 		log.Debug("run one round of consumer", zap.Uint64("checkpoint-ts", checkpointTs))
-
-		c.TableAnyConsumed = make(map[int64]bool)
 
 		dmlFileMap, err := c.getNewFiles(ctx)
 
