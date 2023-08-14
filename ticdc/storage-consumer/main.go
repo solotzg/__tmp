@@ -132,6 +132,7 @@ type fileIndexRange struct {
 }
 
 type TxnSinkMap map[uint64][]*model.RowChangedEvent
+type TableDefMap map[string]map[uint64]*cloudstorage.TableDefinition
 
 type consumer struct {
 	replicationCfg  *config.ReplicaConfig
@@ -378,20 +379,12 @@ func getJSON(db *tidb.DB, sqlString string) ([]map[string]interface{}, error) {
 	return tableData, nil
 }
 
-func into_condition(keys []string, values []string) string {
-	var condition []string
-	if keys != nil && values != nil {
-		condition = []string{}
-		for i := range keys {
-			condition = append(condition, fmt.Sprintf("%s = '%s'", keys[i], values[i]))
-		}
+func into_condition(table string, keys []string, values []string) string {
+	condition := []string{}
+	for i := range keys {
+		condition = append(condition, fmt.Sprintf("%s.%s = '%s'", table, keys[i], values[i]))
 	}
-
-	if condition != nil {
-		return fmt.Sprintf(" where %s", strings.Join(condition, " and "))
-	}
-	return ""
-
+	return strings.Join(condition, " and ")
 }
 
 func getTableDataAtTs(db *tidb.DB, ts uint64, table string, keys []string, values []string) ([]map[string]interface{}, error) {
@@ -537,9 +530,11 @@ func (c *consumer) isSafeCheckpointTs(ts uint64, tableID int64, allInCache bool)
 	}
 }
 
-func calc(commitTs uint64, events []*model.RowChangedEvent, joinKeys []string) {
+// "select * from t1, t2 where t1.pk = ? and t2. "
+func calc(events []*model.RowChangedEvent, joinCondition string, db *tidb.DB, tableIds []int64) {
 	for _, event := range events {
-		if event.IsInsert() {
+		old_data := make([]map[string]interface{}, 0)
+		{
 			pk := []string{}
 			pkVal := []string{}
 			for _, col := range event.Columns {
@@ -551,12 +546,29 @@ func calc(commitTs uint64, events []*model.RowChangedEvent, joinKeys []string) {
 					pkVal = append(pkVal, model.ColumnValueString(col.Value))
 				}
 			}
-			// "select * from %s t1, %s t2 where t1. "
-			into_condition([]string{"t1."}, []string{""})
+			schema := quotes.QuoteSchema(event.Table.Schema, event.Table.Table)
+			c := into_condition(schema, pk, pkVal) + " and " + joinCondition
+			sql := fmt.Sprintf("select * from %s where %s", strings.Join(tables, ","), c)
+			res, err := getJSON(db, sql)
+			if err != nil {
+				panic(err.Error())
+			}
 
-		} else if event.IsUpdate() {
-			l := len(event.PreColumns)
-			_ = l
+		}
+		if !event.IsInsert() {
+			pk := []string{}
+			pkVal := []string{}
+			for _, col := range event.PreColumns {
+				if col == nil {
+					continue
+				}
+				if col.Flag.IsPrimaryKey() {
+					pk = append(pk, col.Name)
+					pkVal = append(pkVal, model.ColumnValueString(col.Value))
+				}
+			}
+			condition := into_condition(table, pk, pkVal) + " and " + joinCondition
+
 		}
 	}
 }
