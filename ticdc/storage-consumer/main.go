@@ -57,7 +57,6 @@ import (
 	"github.com/pingcap/tiflow/pkg/sink/codec/common"
 	"github.com/pingcap/tiflow/pkg/spanz"
 	putil "github.com/pingcap/tiflow/pkg/util"
-	"github.com/pingcap/tiflow/pkg/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
@@ -74,6 +73,7 @@ var (
 	timezone        string
 	tidbAddr        string
 	tidbTestSQL     string
+	runTestSQL      bool
 )
 
 const (
@@ -83,7 +83,6 @@ const (
 )
 
 func init() {
-	version.LogVersionInfo("storage consumer")
 	flag.StringVar(&upstreamURIStr, "upstream-uri", "", "storage uri")
 	flag.StringVar(&configFile, "config", "", "changefeed configuration file")
 	flag.StringVar(&logFile, "log-file", "", "log file path")
@@ -99,6 +98,7 @@ func init() {
 	flag.Parse()
 
 	if len(tidbTestSQL) > 0 {
+		runTestSQL = true
 		return
 	}
 
@@ -771,7 +771,7 @@ func (g *fakeTableIDGenerator) generateFakeTableID(schema, table string, partiti
 	return g.currentTableID
 }
 
-func main2() {
+func testSQL() {
 	db, err := newMySQLConn(tidbAddr)
 	if err != nil {
 		panic(err.Error())
@@ -784,6 +784,11 @@ func main2() {
 }
 
 func main() {
+	if runTestSQL {
+		testSQL()
+		return
+	}
+
 	var consumer *consumer
 	var err error
 

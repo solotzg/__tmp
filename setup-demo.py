@@ -48,13 +48,14 @@ HUDI_COMPILED_TIME = 'hudi_compiled'
 COMPOSE_PROJECT_NAME = 'COMPOSE_PROJECT_NAME'
 HUDI_VERSION = '0.12.3'
 FLINK_VERSION = '1.13'
+FLINK_VERSION_LONG = '1.13.6'
 FLINK_VERSION_NAME = 'FLINK_VERSION'
 HUDI_FLINK_BUNDLE_NAME_FMT = "hudi-flink{}-bundle-{}.jar"
 HUDI_FLINK_BUNDLE_NAME = HUDI_FLINK_BUNDLE_NAME_FMT.format(
     FLINK_VERSION, HUDI_VERSION)
 KAFKA_VERSION = "2.4.0"
 KAFKA_VERSION_NAME = "KAFKA_VERSION"
-FLINK_JDBC_NAME = 'flink-connector-jdbc_2.11-1.13.6.jar'
+FLINK_JDBC_NAME = 'flink-connector-jdbc_2.11-{}.jar'.format(FLINK_VERSION_LONG)
 FLINK_MYSQL_NAME = 'mysql-connector-java-8.0.20.jar'
 
 
@@ -416,6 +417,7 @@ class Runner:
         self.list_kafka_topics()
         self.list_flink_jobs()
         self.ls_hdfs_dir('pingcap/demo')
+        self.list_all_bucket()
 
     def rm_all_jobs(self):
         etl_jobs: dict = self.env_vars.get(etl_jobs_name, {})
@@ -622,7 +624,8 @@ class Runner:
         hadoop_tar_name = '{}.tar.gz'.format(HADOOP_NAME)
         hadoop_url = "{}/{}".format(DOWNLOAD_URL, hadoop_tar_name)
 
-        flink_sql_connector_name = 'flink-sql-connector-kafka_2.11-1.13.6.jar'
+        flink_sql_connector_name = 'flink-sql-connector-kafka_2.11-{}.jar'.format(
+            FLINK_VERSION_LONG)
         flink_sql_connector_url = "{}/{}".format(
             DOWNLOAD_URL, flink_sql_connector_name)
         hudi_flink_bundle_url = "{}/{}".format(
@@ -923,6 +926,11 @@ class Runner:
         else:
             for bucket in buckets:
                 self.remove_bucket(bucket.name)
+
+    def list_all_bucket(self, ):
+        buckets = self.s3_client.list_buckets()
+        s = '\n'.join(str(b) for b in buckets)
+        logger.info("all s3 buckets:\n{}\n".format(s))
 
     def remove_bucket(self, bucketname):
         from minio.deleteobjects import DeleteObject
