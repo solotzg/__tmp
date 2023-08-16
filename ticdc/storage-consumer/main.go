@@ -75,6 +75,8 @@ var (
 	tidbAddr        string
 	tidbTestSQL     string
 	runTestSQL      bool
+	testStr         string
+	etlTables       map[string][]model.Column
 )
 
 const (
@@ -84,6 +86,7 @@ const (
 )
 
 func init() {
+	var tables string
 	flag.StringVar(&upstreamURIStr, "upstream-uri", "", "storage uri")
 	flag.StringVar(&configFile, "config", "", "changefeed configuration file")
 	flag.StringVar(&logFile, "log-file", "", "log file path")
@@ -95,12 +98,25 @@ func init() {
 	flag.StringVar(&timezone, "tz", "System", "Specify time zone of storage consumer")
 	flag.StringVar(&tidbAddr, "tidb-addr", "127.0.0.1:12354", "Specify tidb address `host/ip`:`port`")
 	flag.StringVar(&tidbTestSQL, "test-sql", "", "sql: select ? from ? where ?")
+	flag.StringVar(&testStr, "test-str", "", "")
+	flag.StringVar(&tables, "etl-tables", "", "")
 
 	flag.Parse()
 
 	if len(tidbTestSQL) > 0 {
 		runTestSQL = true
 		return
+	}
+
+	etlTables = make(map[string][]model.Column)
+	for _, tableKey := range strings.Split(tables, ",") {
+		x := strings.Split(tableKey, ".")
+		if len(x) != 2 {
+			panic("")
+		}
+		schema := x[0]
+		table := x[1]
+		etlTables[quotes.QuoteSchema(schema, table)] = make([]model.Column, 0)
 	}
 
 	err := logutil.InitLogger(&logutil.Config{
@@ -150,6 +166,7 @@ type consumer struct {
 	txnSinkMap       TxnSinkMap
 	tableIDGenerator *fakeTableIDGenerator
 	errCh            chan error
+	db               *tidb.DB
 	CheckpointTs     uint64
 }
 
@@ -207,6 +224,26 @@ func newConsumer(ctx context.Context) (*consumer, error) {
 
 	errCh := make(chan error, 1)
 
+	db, err := newMySQLConn(tidbAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	for tableKey, _ := range etlTables {
+		res, err := getJSON(db, "desc "+tableKey)
+		if err != nil {
+			return nil, err
+		}
+		columns := make([]model.Column, len(res))
+		for i, r := range res {
+			columns[i].Name = r[0]
+			if r[3] == "PRI" {
+				columns[i].Flag.SetIsPrimaryKey()
+			}
+		}
+		etlTables[tableKey] = columns
+	}
+
 	return &consumer{
 		replicationCfg:  replicaConfig,
 		codecCfg:        codecConfig,
@@ -221,6 +258,7 @@ func newConsumer(ctx context.Context) (*consumer, error) {
 			tableIDs: make(map[string]int64),
 		},
 		txnSinkMap: make(TxnSinkMap),
+		db:         db,
 	}, nil
 }
 
@@ -317,7 +355,6 @@ type IMVSink struct {
 	joinKeys   []string
 	table1     string
 	table2     string
-	db         *tidb.DB
 	txnSinkMap TxnSinkMap
 }
 
@@ -326,24 +363,23 @@ func newMySQLConn(addr string) (*tidb.DB, error) {
 }
 
 func newIMVSink(joinKeys []string, table1, table2 string, txnSinkMap TxnSinkMap, addr string) (*IMVSink, error) {
-	db, err := newMySQLConn(addr)
-	if err != nil {
-		return nil, err
-	}
 	return &IMVSink{
 		joinKeys:   joinKeys,
 		table1:     table1,
 		table2:     table2,
 		txnSinkMap: txnSinkMap,
-		db:         db,
 	}, nil
 }
 
 func (v *IMVSink) Close() {
-	v.db.Close()
 }
 
-func getJSON(db *tidb.DB, sqlString string) ([]map[string]interface{}, error) {
+func getJSONAtTs(db *tidb.DB, sqlString string, ts uint64) ([][]string, error) {
+	sqlString = fmt.Sprintf("set tidb_snapshot=%d; %s", ts, sqlString)
+	return getJSON(db, sqlString)
+}
+
+func getJSON(db *tidb.DB, sqlString string) ([][]string, error) {
 	rows, err := db.Query(sqlString)
 	if err != nil {
 		return nil, err
@@ -354,27 +390,27 @@ func getJSON(db *tidb.DB, sqlString string) ([]map[string]interface{}, error) {
 		return nil, err
 	}
 	count := len(columns)
-	tableData := make([]map[string]interface{}, 0)
-	values := make([]interface{}, count)
+	tableData := make([][]string, 0)
 	valuePtrs := make([]interface{}, count)
 	for rows.Next() {
+		tmp := make([]interface{}, count)
+		values := make([]string, count)
 		for i := 0; i < count; i++ {
-			valuePtrs[i] = &values[i]
+			valuePtrs[i] = &tmp[i]
 		}
 		rows.Scan(valuePtrs...)
-		entry := make(map[string]interface{})
-		for i, col := range columns {
-			var v interface{}
-			val := values[i]
+		for i := range columns {
+			var v string
+			val := tmp[i]
 			b, ok := val.([]byte)
 			if ok {
 				v = string(b)
-			} else {
-				v = val
+			} else if val != nil {
+				panic("")
 			}
-			entry[col] = v
+			values[i] = v
 		}
-		tableData = append(tableData, entry)
+		tableData = append(tableData, values)
 	}
 	return tableData, nil
 }
@@ -385,27 +421,6 @@ func into_condition(table string, keys []string, values []string) string {
 		condition = append(condition, fmt.Sprintf("%s.%s = '%s'", table, keys[i], values[i]))
 	}
 	return strings.Join(condition, " and ")
-}
-
-func getTableDataAtTs(db *tidb.DB, ts uint64, table string, keys []string, values []string) ([]map[string]interface{}, error) {
-	var condition []string
-	if keys != nil && values != nil {
-		condition = []string{}
-		for i := range keys {
-			condition = append(condition, fmt.Sprintf("%s = '%s'", keys[i], values[i]))
-		}
-	}
-
-	sqlString := fmt.Sprintf("set tidb_snapshot=%d; select * from `%s`", ts, table)
-	if condition != nil {
-		sqlString += fmt.Sprintf(" where %s", strings.Join(condition, " and "))
-	}
-
-	res, err := getJSON(db, sqlString)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
 }
 
 // WriteEvents log the events.
@@ -531,10 +546,23 @@ func (c *consumer) isSafeCheckpointTs(ts uint64, tableID int64, allInCache bool)
 }
 
 // "select * from t1, t2 where t1.pk = ? and t2. "
-func calc(events []*model.RowChangedEvent, joinCondition string, db *tidb.DB, tableIds []int64) {
+func calc(events []*model.RowChangedEvent, joinCondition string, db *tidb.DB) map[string][][]string {
+	col_desc := make([]*model.Column, 0)
+	pk_size := 0
+	tableSchemas := make([]string, 0)
+	for key, cols := range etlTables {
+		for i := range cols {
+			col_desc = append(col_desc, &cols[i])
+			if cols[i].Flag.IsPrimaryKey() {
+				pk_size += 1
+			}
+		}
+		tableSchemas = append(tableSchemas, key)
+	}
+	newEtlPKMap := make(map[string][]string)
+	oldEtlPKMap := make(map[string][]string)
 	for _, event := range events {
-		old_data := make([]map[string]interface{}, 0)
-		{
+		if !event.IsDelete() {
 			pk := []string{}
 			pkVal := []string{}
 			for _, col := range event.Columns {
@@ -547,14 +575,26 @@ func calc(events []*model.RowChangedEvent, joinCondition string, db *tidb.DB, ta
 				}
 			}
 			schema := quotes.QuoteSchema(event.Table.Schema, event.Table.Table)
-			c := into_condition(schema, pk, pkVal) + " and " + joinCondition
-			sql := fmt.Sprintf("select * from %s where %s", strings.Join(tables, ","), c)
-			res, err := getJSON(db, sql)
+			c := into_condition(schema, pk, pkVal)
+			if len(joinCondition) > 0 {
+				c += " and " + joinCondition
+			}
+			sql := fmt.Sprintf("select * from %s where %s", strings.Join(tableSchemas, ","), c)
+			res_rows, err := getJSONAtTs(db, sql, event.CommitTs)
 			if err != nil {
 				panic(err.Error())
 			}
-
+			for _, row := range res_rows {
+				k := make([]string, 0, pk_size)
+				for c := range col_desc {
+					if col_desc[c].Flag.IsPrimaryKey() {
+						k = append(k, row[c])
+					}
+				}
+				newEtlPKMap[strings.Join(k, "\t")] = row
+			}
 		}
+
 		if !event.IsInsert() {
 			pk := []string{}
 			pkVal := []string{}
@@ -567,10 +607,41 @@ func calc(events []*model.RowChangedEvent, joinCondition string, db *tidb.DB, ta
 					pkVal = append(pkVal, model.ColumnValueString(col.Value))
 				}
 			}
-			condition := into_condition(table, pk, pkVal) + " and " + joinCondition
-
+			schema := quotes.QuoteSchema(event.Table.Schema, event.Table.Table)
+			c := into_condition(schema, pk, pkVal)
+			if len(joinCondition) > 0 {
+				c += " and " + joinCondition
+			}
+			sql := fmt.Sprintf("select * from %s where %s", strings.Join(tableSchemas, ","), c)
+			res_rows, err := getJSONAtTs(db, sql, event.CommitTs-1)
+			if err != nil {
+				panic(err.Error())
+			}
+			for _, row := range res_rows {
+				k := make([]string, 0, pk_size)
+				for c := range col_desc {
+					if col_desc[c].Flag.IsPrimaryKey() {
+						k = append(k, row[c])
+					}
+				}
+				oldEtlPKMap[strings.Join(k, "\t")] = row
+			}
 		}
 	}
+
+	resEtlPKMap := make(map[string][][]string)
+	for k, v := range oldEtlPKMap {
+		resEtlPKMap[k] = [][]string{v, nil}
+	}
+	for k, v := range newEtlPKMap {
+		if old, ok := resEtlPKMap[k]; ok {
+			old[1] = v
+		} else {
+			resEtlPKMap[k] = [][]string{nil, v}
+		}
+	}
+
+	return resEtlPKMap
 }
 
 func (c *consumer) updateTableResolvedTs() error {
@@ -581,8 +652,14 @@ func (c *consumer) updateTableResolvedTs() error {
 			return err
 		}
 	}
-	for _, m := range sortmap.Sort(c.txnSinkMap) {
-		fmt.Println(m)
+
+	if len(c.txnSinkMap) != 0 {
+		for _, m := range sortmap.Sort(c.txnSinkMap) {
+			for k, v := range calc(m.Value, testStr, c.db) {
+				log.Debug("Handle etl row", zap.Uint64("ts", m.Key), zap.String("key", k), zap.Any("value", v))
+			}
+		}
+		c.txnSinkMap = make(TxnSinkMap)
 	}
 
 	return nil
