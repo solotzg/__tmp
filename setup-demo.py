@@ -562,8 +562,9 @@ class Runner:
                 logger.info("remove `{}`".format(p))
                 if os.path.exists(p):
                     os.remove(p)
-        cmd = "rm -rf {}/*.jar".format(self.env_libs)
-        run_cmd(cmd)
+        if self.env_vars.get(env_libs_name) is not None:
+            cmd = "rm -rf {}/*.jar".format(self.env_libs)
+            run_cmd(cmd)
 
     @property
     def tidb_running(self):
