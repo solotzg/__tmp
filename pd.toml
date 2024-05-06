@@ -1,0 +1,16 @@
+[pd-server]
+## Disable dashboard
+dashboard-address = "none"
+
+[schedule]
+max-store-down-time = "3000h"
+merge-schedule-limit = 0
+low-space-ratio = 0.99
+
+[replication]
+max-replicas = 1
+enable-placement-rules = true
+
+[dashboard]
+## When enabled, usage data will be sent to PingCAP for improving user experience.
+enable-telemetry = false

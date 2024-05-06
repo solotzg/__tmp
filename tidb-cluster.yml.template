@@ -7,6 +7,7 @@ services:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/pd0:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/pd0:/log
       - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/pd0:/tmp
+      - ${pingcap_demo_path}/pd.toml:/pd.toml:ro
     command:
       - --name=pd0
       - --client-urls=http://0.0.0.0:2379
@@ -16,6 +17,7 @@ services:
       - --initial-cluster=pd0=http://pd0:2380
       - --data-dir=/data
       - --log-file=/log/pd.log
+      - --config=/pd.toml
     restart: on-failure
     ports:
       - "${pd_port}:2379"
