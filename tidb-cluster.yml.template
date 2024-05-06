@@ -6,6 +6,7 @@ services:
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/pd0:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/pd0:/log
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/pd0:/tmp
     command:
       - --name=pd0
       - --client-urls=http://0.0.0.0:2379
@@ -24,7 +25,7 @@ services:
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/tiflash:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/tiflash:/log
-      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp:/tmp
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/tiflash:/tmp
       - ${pingcap_demo_path}/tiflash_dt.toml:/config.toml:ro
       - ${pingcap_demo_path}/proxy.toml:/proxy.toml:ro
     restart: on-failure
@@ -43,6 +44,7 @@ services:
       - ${pingcap_demo_path}/tidb-config/tikv.toml:/tikv.toml:ro
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/tikv0:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/tikv0:/log
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/tikv0:/tmp
     command:
       - --addr=0.0.0.0:20160
       - --advertise-addr=tikv0:20160
@@ -62,6 +64,7 @@ services:
     image: hub.pingcap.net/qa/tidb:${TIDB_BRANCH}
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/tidb0:/log
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/tidb0:/tmp
     command:
       - --store=tikv
       - --path=pd0:2379
@@ -80,6 +83,7 @@ services:
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/ticdc_server0:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/ticdc_server0:/log
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/ticdc_server0:/tmp
       - ${pingcap_demo_path}:/pingcap/demo
     command:
       - /cdc
@@ -101,3 +105,4 @@ services:
     volumes:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/dumpling:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/dumpling:/log
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/dumpling:/tmp
