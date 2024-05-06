@@ -18,6 +18,24 @@ services:
     restart: on-failure
     ports:
       - "${pd_port}:2379"
+  
+  tiflash0:
+    image: hub.pingcap.net/qa/tiflash:${TIDB_BRANCH}
+    volumes:
+      - ${pingcap_demo_path}/.tmp.demo/tidb/data/tiflash:/data
+      - ${pingcap_demo_path}/.tmp.demo/tidb/log/tiflash:/log
+      - ${pingcap_demo_path}/.tmp.demo/tidb/tmp:/tmp
+      - ${pingcap_demo_path}/tiflash_dt.toml:/config.toml:ro
+      - ${pingcap_demo_path}/proxy.toml:/proxy.toml:ro
+    restart: on-failure
+    entrypoint:
+      - /tiflash/tiflash
+      - server
+      - --config-file
+      - /config.toml
+    depends_on:
+      - "pd0"
+      - "tikv0"
 
   tikv0:
     image: hub.pingcap.net/qa/tikv:${TIDB_BRANCH}
@@ -49,11 +67,13 @@ services:
       - --path=pd0:2379
       - --log-file=/log/tidb.log
       - --advertise-address=tidb0
+      - --status=10080
     depends_on:
       - "tikv0"
     restart: on-failure
     ports:
       - "${tidb_port}:4000"
+      - "${tidb_status_port}:10080"
 
   ticdc_server0:
     image: hub.pingcap.net/qa/ticdc:${TIDB_BRANCH}

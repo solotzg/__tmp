@@ -21,7 +21,7 @@ TIDB_START_PORT_OFFSET = len(HUDI_FLINK_PORT_NAME_SET) + HUDI_START_PORT_OFFSET
 ticdc_port_name = 'ticdc_port'
 tidb_port_name = 'tidb_port'
 TIDB_PORT_NAME_SET = {"pd_port", "tikv_status_port",
-                      tidb_port_name, ticdc_port_name}
+                      tidb_port_name, ticdc_port_name, 'tidb_status_port'}
 tidb_compose_name = 'tidb-compose'
 HUFI_FLINK_COMPOSE_NAME = 'hufi-flink-compose'
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
@@ -36,6 +36,7 @@ start_port_name = 'start_port'
 HADOOP_NAME = "hadoop-2.8.4"
 java_home_var_name = 'JAVA_HOME'
 tidb_version_prefix = 'release-'
+tidb_version_prefix2 = 'v'
 etl_jobs_name = "etl_jobs"
 ticdc_changefeed_name = 'ticdc_changefeed'
 flink_job_name = 'flink_job'
@@ -702,17 +703,21 @@ class Runner:
             self.args.tidb_branch = self.env_vars.get(TIDB_BRANCH)
         assert self.args.tidb_branch
         assert self.args.tidb_branch == 'master' or self.args.tidb_branch.startswith(
-            tidb_version_prefix)
+            tidb_version_prefix) or self.args.tidb_branch.startswith(tidb_version_prefix2)
         if self.args.tidb_branch.startswith(tidb_version_prefix):
             versions = self.args.tidb_branch[len(tidb_version_prefix):]
             vs = [int(v) for v in versions.split('.')]
             assert len(vs) == 2
+        if self.args.tidb_branch.startswith(tidb_version_prefix2):
+            versions = self.args.tidb_branch[len(tidb_version_prefix2):]
+            vs = [int(v) for v in versions.split('.')]
+            assert len(vs) == 3
         self.detect_change_and_update(TIDB_BRANCH, self.args.tidb_branch)
         return self.args.tidb_branch
 
     def deploy_tidb(self):
         tidb_branch = self.tidb_branch
-        self.setup_env_libs()
+        # self.setup_env_libs()
         self.gen_tidb_cluster_config_file_from_template(
             self.start_port + TIDB_START_PORT_OFFSET, tidb_branch)
         if self.tidb_running:
