@@ -7,7 +7,7 @@ services:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/pd0:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/pd0:/log
       - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/pd0:/tmp
-      - ${pingcap_demo_path}/pd.toml:/pd.toml:ro
+      - ${pingcap_demo_path}/tidb-config/pd.toml:/pd.toml:ro
     command:
       - --name=pd0
       - --client-urls=http://0.0.0.0:2379
@@ -28,8 +28,8 @@ services:
       - ${pingcap_demo_path}/.tmp.demo/tidb/data/tiflash:/data
       - ${pingcap_demo_path}/.tmp.demo/tidb/log/tiflash:/log
       - ${pingcap_demo_path}/.tmp.demo/tidb/tmp/tiflash:/tmp
-      - ${pingcap_demo_path}/tiflash_dt.toml:/config.toml:ro
-      - ${pingcap_demo_path}/proxy.toml:/proxy.toml:ro
+      - ${pingcap_demo_path}/tidb-config/tiflash_dt.toml:/config.toml:ro
+      - ${pingcap_demo_path}/tidb-config/proxy.toml:/proxy.toml:ro
     restart: on-failure
     entrypoint:
       - /tiflash/tiflash
@@ -39,6 +39,8 @@ services:
     depends_on:
       - "pd0"
       - "tikv0"
+    ports:
+      - "${tiflash_status_port}:20181"
 
   tikv0:
     image: hub.pingcap.net/qa/tikv:${TIDB_BRANCH}

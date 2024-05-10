@@ -21,7 +21,7 @@ TIDB_START_PORT_OFFSET = len(HUDI_FLINK_PORT_NAME_SET) + HUDI_START_PORT_OFFSET
 ticdc_port_name = 'ticdc_port'
 tidb_port_name = 'tidb_port'
 TIDB_PORT_NAME_SET = {"pd_port", "tikv_status_port",
-                      tidb_port_name, ticdc_port_name, 'tidb_status_port'}
+                      tidb_port_name, ticdc_port_name, 'tidb_status_port', 'tiflash_status_port'}
 tidb_compose_name = 'tidb-compose'
 HUFI_FLINK_COMPOSE_NAME = 'hufi-flink-compose'
 env_file_path = "{}/.tmp.env.json".format(SCRIPT_DIR)
